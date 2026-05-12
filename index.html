@@ -1267,7 +1267,7 @@ function App(){
   if(!sessionType)return<SessionTypeScreen teamName={activeTeam.name} onSelect={t=>{setSessionType(t);if(t==='Practice')setOpponent('');}} onBack={handleBack}/>;
   if(sessionType==='Game'&&opponent===null)return<GameSetup teamName={activeTeam.name} onStart={opp=>setOpponent(opp)} onBack={handleBack}/>;
   const teamData=lsGet(TK(activeTeam.id))||{};
-  return(<Tracker key={activeTeam.id+'-'+sessionType+'-'+(opponent||'')} teamMeta={activeTeam} players={teamData.players||[]} sessionType={sessionType} opponent={opponent||''} sessions={teamData.sessions||[]} onBack={handleBack} onPersist={u=>onMeta(activeTeam&&activeTeam.id,u)}/>);
+  return(<Tracker key={activeTeam.id+'-'+sessionType+'-'+(opponent||'')} teamMeta={activeTeam} players={teamData.players||[]} sessionType={sessionType} opponent={opponent||''} sessions={teamData.sessions||[]} onBack={handleBack} onPersist={u=>onMeta(activeTeam.id,u)}/>);
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
