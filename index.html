@@ -711,7 +711,7 @@ function Tracker({teamMeta,players:initPlayers,sessionType,opponent,sessions:ini
   const [players,setPlayers]=useState(initPlayers);
   const [sessions,setSessions]=useState(initSessions);
   const [view,setView]=useState('today');
-  const [activePid,setActivePid]=useState(()=>function(){var _f=initPlayers.find(function(p){return p.active!==false;});return _f?_f.id:null;}()||null);
+  const [activePid,setActivePid]=useState(()=>initPlayers.find(p=>p.active!==false)?.id||null);
   const [mode,setMode]=useState(null);
   const [notice,setNotice]=useState(null);
   const [showHeat,setShowHeat]=useState(false);
