@@ -250,25 +250,25 @@ function ScoreEditModal({myName,oppName,myScore,oppScore,onAdj,onClose}){
 }
 
 // ── Opponent Panel ────────────────────────────────────────────────────────────
-function OppStatTile({label,val,tKey,color,large,q,onChange}){
+function OppStatTile({label,val,tKey,color,q,onChange}){
   const t=useRef(null),f=useRef(false);
   const dn=(e)=>{e.preventDefault();f.current=false;t.current=setTimeout(()=>{f.current=true;if(val>0){onChange(q,tKey,-1);vib(40);}},700);};
   const up=()=>{clearTimeout(t.current);if(!f.current){onChange(q,tKey,1);vib(50);}};
   const cl=()=>{clearTimeout(t.current);f.current=true;};
   return(<div onPointerDown={dn} onPointerUp={up} onPointerLeave={cl} onPointerCancel={cl}
-    style={{background:color+'15',borderRadius:10,padding:large?'10px 4px':'7px 4px',border:'1px solid '+color+'44',display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',flex:1,minWidth:0}}>
-    <div style={{fontSize:large?10:8,color,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase',textAlign:'center',lineHeight:1.2,whiteSpace:'nowrap'}}>{label}</div>
-    <div style={{fontSize:large?30:22,fontWeight:900,color:T.t1,lineHeight:1}}>{val}</div>
+    style={{background:color+'18',borderRadius:10,border:'1px solid '+color+'55',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:'pointer',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',flex:1,minWidth:0,position:'relative',overflow:'hidden',height:56}}>
+    <div style={{fontSize:13,color,fontWeight:900,letterSpacing:1,textTransform:'uppercase',textAlign:'center',lineHeight:1,zIndex:2,position:'relative'}}>{label}</div>
+    <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',fontSize:36,fontWeight:900,color:color,opacity:0.18,lineHeight:1,zIndex:1,pointerEvents:'none'}}>{val}</div>
+    <div style={{position:'absolute',bottom:4,right:6,fontSize:15,fontWeight:900,color:T.t1,opacity:0.75,lineHeight:1,zIndex:2}}>{val}</div>
   </div>);
 }
-function OppShotTile({label,shotKey,made,att,mode,onOppShot,color}){
+function OppShotTile({label,shotKey,mode,onOppShot,color}){
   const active=!!mode;
   const handle=()=>{if(active){onOppShot(shotKey);}};
+  const activeColor=mode==='make'?T.green:T.red;
   return(<div onClick={handle}
-    style={{background:active?mode==='make'?T.green+'22':T.red+'22':color+'15',borderRadius:10,padding:'10px 4px',border:'2px solid '+(active?mode==='make'?T.green:T.red:color+'55'),display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:active?'pointer':'default',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',flex:1.3,minWidth:0,transition:'all 0.15s'}}>
-    <div style={{fontSize:10,color:active?mode==='make'?T.green:T.red:color,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase',textAlign:'center',lineHeight:1.2}}>{label}</div>
-    <div style={{fontSize:28,fontWeight:900,color:T.t1,lineHeight:1}}>{made}</div>
-    <div style={{fontSize:8,color:T.t4}}>{att} att</div>
+    style={{background:active?activeColor+'22':color+'18',borderRadius:10,border:'2px solid '+(active?activeColor:color+'66'),display:'flex',alignItems:'center',justifyContent:'center',cursor:active?'pointer':'default',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',flex:1.3,minWidth:0,transition:'all 0.15s',height:56}}>
+    <div style={{fontSize:18,color:active?activeColor:color,fontWeight:900,letterSpacing:1,textTransform:'uppercase',textAlign:'center',lineHeight:1}}>{label}</div>
   </div>);
 }
 function OppPanel({qData,q,onChange,mode,onOppShot}){
@@ -284,13 +284,13 @@ function OppPanel({qData,q,onChange,mode,onOppShot}){
     </div>
     <div style={{padding:'10px 12px',display:'flex',flexDirection:'column',gap:8}}>
       <div style={{display:'flex',gap:6}}>
-        <OppShotTile label="2PT" shotKey="fg2" made={qd.fg2m||0} att={qd.fg2a||0} mode={mode} onOppShot={onOppShot} color={T.blue}/>
-        <OppShotTile label="3PT" shotKey="fg3" made={qd.fg3m||0} att={qd.fg3a||0} mode={mode} onOppShot={onOppShot} color='#7c3aed'/>
-        <OppShotTile label="FT" shotKey="ft" made={qd.ftm||0} att={qd.fta||0} mode={mode} onOppShot={onOppShot} color='#d97706'/>
+        <OppShotTile label="2PT" shotKey="fg2" mode={mode} onOppShot={onOppShot} color={T.blue}/>
+        <OppShotTile label="3PT" shotKey="fg3" mode={mode} onOppShot={onOppShot} color='#7c3aed'/>
+        <OppShotTile label="FT" shotKey="ft" mode={mode} onOppShot={onOppShot} color='#d97706'/>
       </div>
       <div style={{display:'flex',gap:6}}>
-        <OppStatTile label="O-REB" val={qd.oReb||0} tKey="oReb" color='#d97706' q={q} onChange={onChange}/>
-        <OppStatTile label="D-REB" val={qd.dReb||0} tKey="dReb" color='#0891b2' q={q} onChange={onChange}/>
+        <OppStatTile label="O REB" val={qd.oReb||0} tKey="oReb" color='#d97706' q={q} onChange={onChange}/>
+        <OppStatTile label="D REB" val={qd.dReb||0} tKey="dReb" color='#0891b2' q={q} onChange={onChange}/>
         <OppStatTile label="TO" val={qd.to||0} tKey="to" color={T.red} q={q} onChange={onChange}/>
         <OppStatTile label="FOUL" val={qd.foul||0} tKey="foul" color='#ea580c' q={q} onChange={onChange}/>
       </div>
@@ -305,13 +305,14 @@ function StatTile({label,color,value,onChange,statKey}){
   const up=()=>{clearTimeout(t.current);if(!f.current){onChange(statKey,1);vib(50);}};
   const cl=()=>{clearTimeout(t.current);f.current=true;};
   return(<div onPointerDown={dn} onPointerUp={up} onPointerLeave={cl} onPointerCancel={cl}
-    style={{background:color+'18',borderRadius:8,padding:'6px 2px',border:'1px solid '+color+'44',display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation'}}>
-    <div style={{fontSize:8,color,fontWeight:700,textTransform:'uppercase',textAlign:'center',lineHeight:1}}>{label}</div>
-    <div style={{fontSize:22,fontWeight:900,color:T.t1,lineHeight:1}}>{value}</div>
+    style={{background:color+'18',borderRadius:8,border:'1px solid '+color+'55',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',position:'relative',overflow:'hidden',height:52,flex:1}}>
+    <div style={{fontSize:11,color,fontWeight:900,letterSpacing:0.5,textTransform:'uppercase',textAlign:'center',lineHeight:1,zIndex:2,position:'relative',padding:'0 2px'}}>{label}</div>
+    <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',fontSize:34,fontWeight:900,color:color,opacity:0.15,lineHeight:1,zIndex:1,pointerEvents:'none'}}>{value}</div>
+    <div style={{position:'absolute',bottom:3,right:5,fontSize:14,fontWeight:900,color:T.t1,opacity:0.8,lineHeight:1,zIndex:2}}>{value}</div>
   </div>);
 }
 function GameStatBar({stats,onChange}){
-  return(<div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3}}>
+  return(<div style={{display:'flex',gap:3}}>
     {GSTATS.map(({key,label,color})=>(
       <StatTile key={key} statKey={key} label={label} color={color} value={(stats&&stats[key])||0} onChange={onChange}/>
     ))}
@@ -886,19 +887,50 @@ function Tracker({teamMeta,players:initPlayers,sessionType,opponent,sessions:ini
   const handleRemovePlayer=()=>{const npl=players.filter(p=>p.id!==editPid),ns=sessions.filter(s=>s.playerId!==editPid);setPlayers(npl);setSessions(ns);setPDrafts(p=>{const n={...p};delete n[editPid];return n;});setActivePid(npl.length>0?npl[0].id:null);setEditPid(null);setEditNum('');setConfDelP(false);persist(npl,ns);};
   const dMk=dSh.filter(s=>s.make).length,dPct=dSh.length?Math.round(dMk/dSh.length*100):null,dPts=calcPts(dSh,dFT);
 
-  const ChipGrid=()=>(<div style={{display:'flex',flexDirection:'column',gap:5}}>
-    <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:5}}>
-      {players.map((p,i)=>{const isA=activePid===p.id,col=pc(p,i),benched=!isChipActive(p);return(
-        <div key={p.id} onPointerDown={chipDown(p)} onPointerUp={chipUp(p)} onPointerLeave={chipCancel} onPointerCancel={chipCancel}
-          style={{height:42,borderRadius:10,padding:'0 4px',border:isA?'2px solid '+col:'1px solid '+T.border,background:isA?col+'22':T.card,color:isA?col:T.t2,fontSize:p.number.length>6?10:p.number.length>3?13:16,fontWeight:800,cursor:'pointer',boxShadow:isA?'0 0 0 3px '+col+'33':T.shadow,transition:'all 0.15s',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',opacity:benched?0.3:1,userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',position:'relative'}}>
-          {p.number.length>2?p.number:'#'+p.number}
-          {benched&&<div style={{position:'absolute',bottom:1,right:2,fontSize:6,color:T.t4,lineHeight:1,fontWeight:700}}>BENCH</div>}
-        </div>
-      );})}
-      {players.length<12&&<button onClick={()=>{setAddOpen(true);setNewNum('');}} style={{height:42,borderRadius:10,border:'1px dashed '+T.border,background:'transparent',color:T.t4,fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>}
-    </div>
-    <div style={{fontSize:9,color:T.t4,textAlign:'center',letterSpacing:1}}>Tap to select · Long-press to bench/activate</div>
-  </div>);
+  const ChipGrid=()=>{
+    // Sort players numerically, split into two zones: active (on-floor) first, then inactive
+    const parseNum=n=>{const x=parseInt(n);return isNaN(x)?999:x;};
+    const sortedPlayers=[...players].sort((a,b)=>parseNum(a.number)-parseNum(b.number));
+    const activePlayers=sortedPlayers.filter(p=>isChipActive(p));
+    const inactivePlayers=sortedPlayers.filter(p=>!isChipActive(p));
+    const orderedPlayers=[...activePlayers,...inactivePlayers];
+    const activeCount=activePlayers.length;
+    return(<div style={{display:'flex',flexDirection:'column',gap:5}}>
+      {/* Zone label row */}
+      {isGame&&activeCount>0&&<div style={{display:'flex',gap:5,alignItems:'center'}}>
+        <div style={{fontSize:8,color:T.green,fontWeight:700,letterSpacing:2,textTransform:'uppercase',whiteSpace:'nowrap'}}>On Floor ({activeCount})</div>
+        <div style={{flex:1,height:1,background:T.green+'33'}}/>
+        {inactivePlayers.length>0&&<div style={{fontSize:8,color:T.t4,fontWeight:700,letterSpacing:2,textTransform:'uppercase',whiteSpace:'nowrap'}}>Bench ({inactivePlayers.length})</div>}
+        {inactivePlayers.length>0&&<div style={{width:40,height:1,background:T.t4+'33'}}/>}
+      </div>}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:5}}>
+        {orderedPlayers.map((p,i)=>{
+          const pIdx=players.findIndex(pl=>pl.id===p.id);
+          const isA=activePid===p.id,col=pc(p,pIdx),active=isChipActive(p);
+          const isZone1=active;
+          return(
+            <div key={p.id} onPointerDown={chipDown(p)} onPointerUp={chipUp(p)} onPointerLeave={chipCancel} onPointerCancel={chipCancel}
+              style={{height:44,borderRadius:10,padding:'0 4px',
+                border:isA?'2px solid '+col:isZone1?'1.5px solid '+col+'88':'1px solid '+T.border,
+                background:isA?col+'28':isZone1?col+'12':T.card,
+                color:isA?col:isZone1?col+'cc':T.t3,
+                fontSize:p.number.length>6?10:p.number.length>3?13:16,
+                fontWeight:800,cursor:'pointer',
+                boxShadow:isA?'0 0 0 3px '+col+'33':isZone1?'0 0 0 1px '+col+'22':T.shadow,
+                transition:'all 0.2s',display:'flex',alignItems:'center',justifyContent:'center',
+                overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',
+                opacity:isZone1?1:0.38,
+                userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',position:'relative'}}>
+              {p.number.length>2?p.number:'#'+p.number}
+              {!isZone1&&<div style={{position:'absolute',bottom:1,right:2,fontSize:6,color:T.t4,lineHeight:1,fontWeight:700}}>OUT</div>}
+            </div>
+          );
+        })}
+        {players.length<12&&<button onClick={()=>{setAddOpen(true);setNewNum('');}} style={{height:44,borderRadius:10,border:'1px dashed '+T.border,background:'transparent',color:T.t4,fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>}
+      </div>
+      <div style={{fontSize:9,color:T.t4,textAlign:'center',letterSpacing:1}}>Tap to select · Long-press to move in/out</div>
+    </div>);
+  };
 
   const CourtSection=()=>(<>
     <div style={{minHeight:24,display:'flex',alignItems:'center',justifyContent:'center'}}>
