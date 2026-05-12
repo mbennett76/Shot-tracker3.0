@@ -299,20 +299,22 @@ function OppPanel({qData,q,onChange,mode,onOppShot}){
 }
 
 // ── Game Stat Bar ─────────────────────────────────────────────────────────────
+function StatTile({label,color,value,onChange,statKey}){
+  const t=useRef(null),f=useRef(false);
+  const dn=(e)=>{e.preventDefault();f.current=false;t.current=setTimeout(()=>{f.current=true;if(value>0){onChange(statKey,-1);vib(40);}},700);};
+  const up=()=>{clearTimeout(t.current);if(!f.current){onChange(statKey,1);vib(50);}};
+  const cl=()=>{clearTimeout(t.current);f.current=true;};
+  return(<div onPointerDown={dn} onPointerUp={up} onPointerLeave={cl} onPointerCancel={cl}
+    style={{background:color+'18',borderRadius:8,padding:'6px 2px',border:'1px solid '+color+'44',display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation'}}>
+    <div style={{fontSize:8,color,fontWeight:700,textTransform:'uppercase',textAlign:'center',lineHeight:1}}>{label}</div>
+    <div style={{fontSize:22,fontWeight:900,color:T.t1,lineHeight:1}}>{value}</div>
+  </div>);
+}
 function GameStatBar({stats,onChange}){
   return(<div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3}}>
-    {GSTATS.map(({key,label,color})=>{
-      const value=(stats&&stats[key])||0;
-      const t=useRef(null),f=useRef(false);
-      const dn=(e)=>{e.preventDefault();f.current=false;t.current=setTimeout(()=>{f.current=true;if(value>0){onChange(key,-1);vib(40);}},700);};
-      const up=()=>{clearTimeout(t.current);if(!f.current){onChange(key,1);vib(50);}};
-      const cl=()=>{clearTimeout(t.current);f.current=true;};
-      return(<div key={key} onPointerDown={dn} onPointerUp={up} onPointerLeave={cl} onPointerCancel={cl}
-        style={{background:color+'18',borderRadius:8,padding:'6px 2px',border:'1px solid '+color+'44',display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation'}}>
-        <div style={{fontSize:8,color,fontWeight:700,textTransform:'uppercase',textAlign:'center',lineHeight:1}}>{label}</div>
-        <div style={{fontSize:22,fontWeight:900,color:T.t1,lineHeight:1}}>{value}</div>
-      </div>);
-    })}
+    {GSTATS.map(({key,label,color})=>(
+      <StatTile key={key} statKey={key} label={label} color={color} value={(stats&&stats[key])||0} onChange={onChange}/>
+    ))}
   </div>);
 }
 
@@ -849,7 +851,7 @@ function Tracker({teamMeta,players:initPlayers,sessionType,opponent,sessions:ini
   };
 
   const handleUndo=()=>{
-    if(isGame){setGs(g=>{const newQs=g.pdata[activePid].qs.map((q,i)=>{if(i!==g.q-1)return q;const sh=q.shots||[],ft=q.ftShots||[];const lG=sh.length>0?sh[sh.length-1].id:-1,lF=ft.length>0?ft[ft.length-1].id:-1;if(lF>lG)return{...q,ftShots:ft.slice(0,-1)};if(lG>-1)return{...q,shots:sh.slice(0,-1)};return q;});const newLog=(g.playLog||[]).slice(0,-1);return{...g,pdata:{...g.pdata,[activePid]:{...g.pdata[activePid],qs:newQs}},playLog:newLog}});)}
+    if(isGame){setGs(g=>{const newQs=g.pdata[activePid].qs.map((q,i)=>{if(i!==g.q-1)return q;const sh=q.shots||[],ft=q.ftShots||[];const lG=sh.length>0?sh[sh.length-1].id:-1,lF=ft.length>0?ft[ft.length-1].id:-1;if(lF>lG)return{...q,ftShots:ft.slice(0,-1)};if(lG>-1)return{...q,shots:sh.slice(0,-1)};return q;});const newLog=(g.playLog||[]).slice(0,-1);return{...g,pdata:{...g.pdata,[activePid]:{...g.pdata[activePid],qs:newQs}},playLog:newLog}}); }
     else{const d=pDraft,sh=d.shots||[],ft=d.ftShots||[];const lG=sh.length>0?sh[sh.length-1].id:-1,lF=ft.length>0?ft[ft.length-1].id:-1;if(lF>lG)setPDrafts(p=>({...p,[activePid]:{...d,ftShots:ft.slice(0,-1)}}));else if(lG>-1)setPDrafts(p=>({...p,[activePid]:{...d,shots:sh.slice(0,-1)}}));}
   };
 
