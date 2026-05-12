@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Shot Tracker">
+  <meta name="theme-color" content="#f5f5f7">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <title>ShotTracker 3.0</title>
+  <style>
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+    html,body,#root{height:100%;background:#f5f5f7;}
+    body{-webkit-tap-highlight-color:transparent;overscroll-behavior:none;}
+    ::-webkit-scrollbar{display:none;}
+    input,button{font-family:inherit;}
+    input::placeholder{color:#c7c7cc;}
+    @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.7;transform:scale(0.98)}}
+    @keyframes slideup{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+    @keyframes popin{from{opacity:0;transform:scale(0.95)}to{opacity:1;transform:scale(1)}}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback} = React;
+
+function lsGet(k){try{const v=localStorage.getItem(k);return v?JSON.parse(v):null;}catch{return null;}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
+function lsDel(k){try{localStorage.removeItem(k);}catch{}}
+
+function useIsLandscape(){
+  const [ls,setLs]=useState(()=>window.innerWidth>window.innerHeight+60);
+  useEffect(()=>{
+    const h=()=>setLs(window.innerWidth>window.innerHeight+60);
+    window.addEventListener('resize',h);
+    window.addEventListener('orientationchange',()=>setTimeout(h,100));
+    return()=>window.removeEventListener('resize',h);
+  },[]);
+  return ls;
+}
+
+const T={
+  bg:'#f5f5f7',card:'#ffffff',border:'#e5e7eb',
+  t1:'#111827',t2:'#374151',t3:'#6b7280',t4:'#9ca3af',
+  accent:'#FF6B35',accentL:'rgba(255,107,53,0.12)',
+  green:'#16a34a',greenL:'rgba(22,163,74,0.1)',
+  red:'#dc2626',redL:'rgba(220,38,38,0.1)',
+  blue:'#2563eb',blueL:'rgba(37,99,235,0.1)',
+  shadow:'0 1px 3px rgba(0,0,0,0.08)',
+  shadowMd:'0 4px 12px rgba(0,0,0,0.1)',
+};
+
+const CW=500,CH=470,BX=250,BY=420,BASELINE_Y=458;
+const KEY_W=160,KEY_L=BX-KEY_W/2,KEY_R=BX+KEY_W/2;
+const FT_Y=BY-150,FT_R=60,THREE_R=220,COR_X_L=58,COR_X_R=CW-COR_X_L;
+const COR_ARC_Y=BY-Math.sqrt(THREE_R**2-(BX-COR_X_L)**2);
+const CHARGE_R=40,ELBOW_HIT=38;
+const CROP_Y=185,CROP_H=CH-CROP_Y;
+const FT_ZONE_W=30,FT_ZONE_H=18;
+function inFT(x,y){return x>=BX-FT_ZONE_W/2&&x<=BX+FT_ZONE_W/2&&y>=FT_Y-FT_ZONE_H/2&&y<=FT_Y+FT_ZONE_H/2;}
+
+const GSTATS=[
+  {key:'oReb',label:'O REB',color:'#f59e0b'},
+  {key:'dReb',label:'D REB',color:'#38bdf8'},
+  {key:'to',  label:'TO',   color:'#ef4444'},
+  {key:'ast', label:'AST',  color:'#16a34a'},
+  {key:'blk', label:'BLK',  color:'#7c3aed'},
+  {key:'stl', label:'STL',  color:'#db2777'},
+  {key:'foul',label:'FOUL', color:'#ea580c'},
+];
+const TYPES=['Layup','Elbow','Mid-Range','3-Pointer'];
+const ZCOL={'Layup':'#f59e0b','Elbow':'#38bdf8','Mid-Range':'#f97316','3-Pointer':'#16a34a'};
+const PAL=['#ef4444','#2563eb','#16a34a','#d97706','#7c3aed','#0891b2','#ea580c','#db2777','#0d9488','#ca8a04','#4f46e5','#65a30d'];
+const pc=(p,i)=>(p&&p.color)||PAL[i%PAL.length];
+const QNAMES=['Q1','Q2','Q3','Q4'];
+const EMPTY_QSTAT=()=>({shots:[],ftShots:[],oReb:0,dReb:0,to:0,ast:0,blk:0,stl:0,foul:0});
+const EMPTY_OPP=()=>({fg2m:0,fg2a:0,fg3m:0,fg3a:0,ftm:0,fta:0,oReb:0,dReb:0,to:0,foul:0});
+const TLK='bball-teams-v6';
+const TK=id=>'bball-team-v6-'+id;
+const uid=()=>Math.random().toString(36).slice(2,9);
+
+function shotType(x,y){
+  const d=Math.sqrt((x-BX)**2+(y-BY)**2);
+  if(d<=CHARGE_R)return'Layup';
+  if((x<=COR_X_L||x>=COR_X_R)&&y>=COR_ARC_Y)return'3-Pointer';
+  if(d>=THREE_R)return'3-Pointer';
+  if(Math.sqrt((x-KEY_L)**2+(y-FT_Y)**2)<=ELBOW_HIT||Math.sqrt((x-KEY_R)**2+(y-FT_Y)**2)<=ELBOW_HIT)return'Elbow';
+  return'Mid-Range';
+}
+function calcPts(sh=[],ft=[]){return sh.filter(s=>s.make).reduce((t,s)=>t+(s.type==='3-Pointer'?3:2),0)+ft.filter(s=>s.make).length;}
+function oppQPts(q){return(q.fg2m||0)*2+(q.fg3m||0)*3+(q.ftm||0);}
+function todayStr(){return new Date().toISOString().slice(0,10);}
+function fmtDate(iso){return new Date(iso+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});}
+function hasDraftQ(qs){return Array.isArray(qs)&&qs.some(q=>(q.shots||[]).length>0||(q.ftShots||[]).length>0||GSTATS.some(({key})=>(q[key]||0)>0));}
+function vib(ms){try{navigator.vibrate&&navigator.vibrate(ms);}catch{}}
+function calcTrend(sessions){
+  const p=(sessions||[]).slice(0,6).map(s=>{const sh=s.shots||[];return sh.length?sh.filter(x=>x.make).length/sh.length:null;}).filter(x=>x!==null);
+  if(p.length<2)return null;
+  const h=Math.ceil(p.length/2),r=p.slice(0,h).reduce((a,b)=>a+b,0)/h,o=p.slice(h).reduce((a,b)=>a+b,0)/Math.max(1,p.length-h);
+  return r-o>0.04?'up':o-r>0.04?'down':'flat';
+}
+function heatCol(pct){if(pct===null)return null;if(pct>=60)return'#16a34a';if(pct>=48)return'#65a30d';if(pct>=38)return'#d97706';return'#dc2626';}
+function calcPlusMinus(stints,fMy,fOpp){
+  if(!stints||!stints.length)return null;
+  return stints.reduce((pm,s)=>{
+    const em=s.e_my!==undefined?s.e_my:fMy,eo=s.e_opp!==undefined?s.e_opp:fOpp;
+    return pm+(em-s.s_my)-(eo-s.s_opp);
+  },0);
+}
+function mkCSV(name,sessions){
+  const h=['Date','Type','Opponent','Player','FGM','FGA','FG%','3PM','3PA','FTM','FTA','PTS','OR','DR','TO','AST','BLK','STL','FOUL','+/-','Label'];
+  const r=(sessions||[]).map(s=>{const sh=s.shots||[],ft=s.ftShots||[];const fgm=sh.filter(x=>x.make).length,tpm=sh.filter(x=>x.make&&x.type==='3-Pointer').length,tpa=sh.filter(x=>x.type==='3-Pointer').length,ftm=ft.filter(x=>x.make).length;return[s.date,s.sessionType||'Practice',s.opponent||'','#'+s.playerNumber,fgm,sh.length,sh.length?Math.round(fgm/sh.length*100)+'%':'—',tpm,tpa,ftm,ft.length,calcPts(sh,ft),s.oReb||0,s.dReb||0,s.to||0,s.ast||0,s.blk||0,s.stl||0,s.foul||0,s.plusMinus!=null?s.plusMinus:'—',s.label||''].map(v=>'"'+String(v)+'"').join(',');});
+  return[h.join(','),...r].join('\n');
+}
+function dlCSV(fn,c){const b=new Blob([c],{type:'text/csv'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=fn;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);}
+
+// ── Court ─────────────────────────────────────────────────────────────────────
+function Court({shots,ftShots,mode,onShot,readOnly,pCol,showHeat,heatData,activeLbl}){
+  shots=shots||[];ftShots=ftShots||[];pCol=pCol||T.accent;heatData=heatData||{};
+  const ref=useRef(null);
+  const hit=useCallback((e)=>{
+    if(!mode||readOnly)return;e.preventDefault();
+    const r=ref.current.getBoundingClientRect(),src=e.changedTouches?.[0]||e;
+    const x=((src.clientX-r.left)/r.width)*CW,y=((src.clientY-r.top)/r.height)*CROP_H+CROP_Y;
+    if(x<0||x>CW||y<CROP_Y||y>CH)return;onShot(x,y);
+  },[mode,readOnly,onShot]);
+  const L={stroke:'#fff',strokeWidth:2,fill:'none'},DL={...L,strokeDasharray:'6 4'};
+  const ftT=`M ${BX-FT_R},${FT_Y} A ${FT_R},${FT_R} 0 0,0 ${BX+FT_R},${FT_Y}`;
+  const ftB=`M ${BX-FT_R},${FT_Y} A ${FT_R},${FT_R} 0 0,1 ${BX+FT_R},${FT_Y}`;
+  const chg=`M ${BX-CHARGE_R},${BY} A ${CHARGE_R},${CHARGE_R} 0 0,1 ${BX+CHARGE_R},${BY}`;
+  const th3=`M ${COR_X_L},${COR_ARC_Y} A ${THREE_R},${THREE_R} 0 0,1 ${COR_X_R},${COR_ARC_Y}`;
+  const fzX=BX-FT_ZONE_W/2,fzY=FT_Y-FT_ZONE_H/2;
+  const HP=[[BX,215,'3-Pointer','3PT'],[BX,BY-28,'Layup','LAYUP'],[BX,FT_Y+50,'Mid-Range','MID'],[KEY_L-42,FT_Y,'Elbow','ELB'],[KEY_R+42,FT_Y,'Elbow','ELB'],[BX,FT_Y-32,'Free Throw','FT']];
+  return(
+    <svg ref={ref} viewBox={'0 '+CROP_Y+' '+CW+' '+CROP_H}
+      style={{width:'100%',display:'block',borderRadius:12,boxShadow:T.shadowMd,touchAction:'none',cursor:mode?'crosshair':'default'}}
+      onClick={hit} onTouchEnd={hit}>
+      <defs>
+        <linearGradient id="wd" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#C9964D"/><stop offset="100%" stopColor="#A0702A"/></linearGradient>
+        <linearGradient id="pt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4f3b8c" stopOpacity="0.45"/><stop offset="100%" stopColor="#3b2d6e" stopOpacity="0.55"/></linearGradient>
+        <pattern id="fth" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#fbbf24" strokeWidth="1.5" strokeOpacity="0.45"/></pattern>
+        <filter id="gl" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <rect x={0} y={CROP_Y} width={CW} height={CROP_H} fill="url(#wd)"/>
+      {[60,120,180,240,300,360,420,480].map(lx=><line key={lx} x1={lx} y1={CROP_Y} x2={lx} y2={CH} stroke="rgba(0,0,0,0.07)" strokeWidth={1}/>)}
+      <line x1={2} y1={CROP_Y} x2={2} y2={CH-2} stroke="#fff" strokeWidth={2}/>
+      <line x1={CW-2} y1={CROP_Y} x2={CW-2} y2={CH-2} stroke="#fff" strokeWidth={2}/>
+      <line x1={2} y1={CH-2} x2={CW-2} y2={CH-2} stroke="#fff" strokeWidth={2}/>
+      <rect x={KEY_L} y={FT_Y} width={KEY_W} height={BASELINE_Y-FT_Y} fill="url(#pt)" stroke="white" strokeWidth={2}/>
+      {[320,345,370,395].map(hy=>(<g key={hy}><line x1={KEY_L-14} y1={hy} x2={KEY_L} y2={hy} {...L} strokeWidth={1.5}/><line x1={KEY_R} y1={hy} x2={KEY_R+14} y2={hy} {...L} strokeWidth={1.5}/></g>))}
+      <path d={ftT} {...L}/><path d={ftB} {...DL}/>
+      <line x1={COR_X_L} y1={BASELINE_Y} x2={COR_X_L} y2={COR_ARC_Y} {...L}/>
+      <line x1={COR_X_R} y1={BASELINE_Y} x2={COR_X_R} y2={COR_ARC_Y} {...L}/>
+      <path d={th3} {...L}/><path d={chg} {...L} strokeWidth={1.5}/>
+      <line x1={218} y1={BY+18} x2={282} y2={BY+18} stroke="white" strokeWidth={3} strokeLinecap="round"/>
+      <circle cx={BX} cy={BY+7} r={11} fill="none" stroke={T.accent} strokeWidth={2.5}/>
+      <rect x={fzX} y={fzY} width={FT_ZONE_W} height={FT_ZONE_H} fill="url(#fth)" stroke="#fbbf24" strokeWidth={2} strokeDasharray="5 3" rx={3}/>
+      <text x={BX} y={fzY-5} textAnchor="middle" fill="#fbbf24" fontSize={8} fontFamily="monospace" letterSpacing={1.5} fontWeight="bold">FREE THROW</text>
+      {mode&&<rect x={0} y={CROP_Y} width={CW} height={CROP_H} fill={mode==='make'?'rgba(22,163,74,0.08)':'rgba(220,38,38,0.08)'} style={{pointerEvents:'none'}}/>}
+      {showHeat&&HP.map(([bx,by,zone,lbl],i)=>{const d=heatData[zone];const p=d&&d.total>0?Math.round(d.makes/d.total*100):null;const c=heatCol(p);if(!c)return null;return(<g key={i}><rect x={bx-24} y={by-14} width={48} height={28} rx={6} fill={c} fillOpacity={0.9}/><text x={bx} y={by-2} textAnchor="middle" fill="white" fontSize={7} fontFamily="monospace">{lbl}</text><text x={bx} y={by+10} textAnchor="middle" fill="white" fontSize={11} fontFamily="monospace" fontWeight="bold">{p}%</text></g>);})}
+      {shots.map((s,i)=><circle key={s.id} cx={s.x} cy={s.y} r={7} fill={s.make?pCol:'transparent'} stroke={pCol} strokeWidth={s.make?1.5:2.5} filter={(!readOnly&&i===shots.length-1)?'url(#gl)':undefined}/>)}
+      {ftShots.map((s,i)=>{const z=8;return<polygon key={s.id} points={s.x+','+(s.y-z)+' '+(s.x+z)+','+s.y+' '+s.x+','+(s.y+z)+' '+(s.x-z)+','+s.y} fill={s.make?pCol:'transparent'} stroke={s.make?'#fbbf24':pCol} strokeWidth={s.make?1:2.5} filter={(!readOnly&&i===ftShots.length-1)?'url(#gl)':undefined}/>;}) }
+      {activeLbl&&<g><rect x={CW-60} y={CROP_Y+8} width={54} height={24} rx={7} fill={pCol} fillOpacity={0.92}/><text x={CW-33} y={CROP_Y+24} textAnchor="middle" fill="white" fontSize={13} fontWeight="bold" fontFamily="monospace">{'#'+activeLbl}</text></g>}
+    </svg>
+  );
+}
+
+// ── Stats Panel ───────────────────────────────────────────────────────────────
+function SRow({type,makes,total,pct}){
+  return(<div style={{display:'flex',alignItems:'center',gap:8,background:T.bg,borderRadius:8,padding:'7px 12px'}}>
+    <div style={{width:8,height:8,borderRadius:'50%',background:ZCOL[type]||'#888',flexShrink:0}}/>
+    <div style={{width:82,fontSize:11,color:T.t2,textTransform:'uppercase',letterSpacing:1}}>{type}</div>
+    <div style={{flex:1,height:5,background:T.border,borderRadius:3,overflow:'hidden'}}>{total>0&&<div style={{height:'100%',borderRadius:3,background:pct>=50?T.green:T.red,width:pct+'%',transition:'width 0.4s'}}/>}</div>
+    <div style={{width:72,textAlign:'right',fontSize:11}}><span style={{color:T.t2}}>{makes}/{total}</span>{pct!==null&&<span style={{marginLeft:6,fontWeight:700,color:pct>=50?T.green:T.red}}>{pct}%</span>}</div>
+  </div>);
+}
+function SPanel({shots,ftShots}){
+  shots=shots||[];ftShots=ftShots||[];
+  const zs=TYPES.map(t=>{const s=shots.filter(x=>x.type===t),m=s.filter(x=>x.make).length;return{type:t,makes:m,total:s.length,pct:s.length?Math.round(m/s.length*100):null};});
+  const fgm=shots.filter(s=>s.make).length,fgP=shots.length?Math.round(fgm/shots.length*100):null;
+  const ftm=ftShots.filter(s=>s.make).length,ftP=ftShots.length?Math.round(ftm/ftShots.length*100):null,p=calcPts(shots,ftShots);
+  return(<div style={{display:'flex',flexDirection:'column',gap:5}}>
+    {zs.map(s=><SRow key={s.type}{...s}/>)}
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:T.bg,borderRadius:8,padding:'9px 12px',border:'1px solid '+T.border}}>
+      <div style={{fontSize:12,letterSpacing:2,color:T.accent,textTransform:'uppercase',fontWeight:700}}>FG%</div>
+      <div style={{fontSize:12,color:T.t2}}>{fgm}/{shots.length}{fgP!==null&&<span style={{marginLeft:10,fontWeight:900,color:fgP>=50?T.green:T.red}}>{fgP}%</span>}</div>
+    </div>
+    {ftShots.length>0&&<div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:T.bg,borderRadius:8,padding:'9px 12px',border:'1px solid #fde68a'}}>
+      <div style={{fontSize:12,letterSpacing:2,color:'#d97706',textTransform:'uppercase',fontWeight:700}}>FT%</div>
+      <div style={{fontSize:12,color:T.t2}}>{ftm}/{ftShots.length}{ftP!==null&&<span style={{marginLeft:10,fontWeight:900,color:ftP>=50?T.green:T.red}}>{ftP}%</span>}</div>
+    </div>}
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'#fffbeb',borderRadius:8,padding:'9px 12px',border:'1px solid #fde68a'}}>
+      <div style={{fontSize:12,letterSpacing:2,color:'#d97706',textTransform:'uppercase',fontWeight:700}}>⭐ Total Points</div>
+      <div style={{fontSize:20,fontWeight:900,color:'#d97706'}}>{p} <span style={{fontSize:11,color:'#92400e',fontWeight:400}}>pts</span></div>
+    </div>
+  </div>);
+}
+
+// ── ScoreBoard ────────────────────────────────────────────────────────────────
+function ScoreBoard({myName,oppName,myScore,oppScore,quarter,onSetQ,onEditScore}){
+  return(<div style={{background:T.card,borderRadius:14,border:'1px solid '+T.border,boxShadow:T.shadow,overflow:'hidden'}}>
+    <div style={{display:'flex',background:T.bg,borderBottom:'1px solid '+T.border}}>
+      {QNAMES.map((q,i)=>(
+        <button key={q} onClick={()=>onSetQ(i+1)} style={{flex:1,padding:'9px 0',border:'none',background:quarter===i+1?T.accent:'transparent',color:quarter===i+1?'#fff':T.t3,fontSize:12,fontWeight:700,letterSpacing:2,cursor:'pointer',transition:'all 0.15s'}}>
+          {q}
+        </button>
+      ))}
+    </div>
+    <button onClick={onEditScore} style={{width:'100%',background:'transparent',border:'none',padding:'10px 16px 6px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+      <div style={{textAlign:'left',flex:1,minWidth:0}}>
+        <div style={{fontSize:9,color:T.t4,letterSpacing:2,textTransform:'uppercase',marginBottom:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{myName}</div>
+        <div style={{fontSize:48,fontWeight:900,color:T.t1,lineHeight:1}}>{myScore}</div>
+      </div>
+      <div style={{fontSize:18,color:T.t4,padding:'0 10px',paddingTop:14}}>—</div>
+      <div style={{textAlign:'right',flex:1,minWidth:0}}>
+        <div style={{fontSize:9,color:T.t4,letterSpacing:2,textTransform:'uppercase',marginBottom:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{oppName||'Opponent'}</div>
+        <div style={{fontSize:48,fontWeight:900,color:T.t1,lineHeight:1}}>{oppScore}</div>
+      </div>
+    </button>
+    <div style={{textAlign:'center',paddingBottom:6,fontSize:9,color:T.t4,letterSpacing:1}}>tap score to adjust</div>
+  </div>);
+}
+
+// ── Score Edit Modal ──────────────────────────────────────────────────────────
+function ScoreEditModal({myName,oppName,myScore,oppScore,onAdj,onClose}){
+  return(<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:999}} onClick={onClose}>
+    <div style={{background:T.card,borderRadius:'20px 20px 0 0',padding:24,width:'100%',maxWidth:480,animation:'slideup 0.2s ease'}} onClick={e=>e.stopPropagation()}>
+      <div style={{width:40,height:4,background:T.border,borderRadius:2,margin:'0 auto 20px'}}/>
+      <div style={{fontSize:13,fontWeight:700,color:T.t1,textAlign:'center',letterSpacing:2,textTransform:'uppercase',marginBottom:20}}>Adjust Score</div>
+      {[[myName||'My Team',myScore,'my'],[oppName||'Opponent',oppScore,'opp']].map(([name,score,key])=>(
+        <div key={key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,padding:'12px 16px',background:T.bg,borderRadius:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:T.t1,minWidth:80,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{name}</div>
+          <div style={{display:'flex',alignItems:'center',gap:16,flexShrink:0}}>
+            <button onClick={()=>onAdj(key,-1)} style={{width:42,height:42,borderRadius:21,border:'1px solid '+T.border,background:T.card,color:T.t2,fontSize:24,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>−</button>
+            <div style={{fontSize:38,fontWeight:900,color:T.t1,minWidth:56,textAlign:'center'}}>{score}</div>
+            <button onClick={()=>onAdj(key,1)} style={{width:42,height:42,borderRadius:21,border:'none',background:T.accent,color:'#fff',fontSize:24,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>+</button>
+          </div>
+        </div>
+      ))}
+      <div style={{fontSize:10,color:T.t4,textAlign:'center',marginBottom:16}}>Adjustments are added on top of auto-calculated score</div>
+      <button onClick={onClose} style={{width:'100%',padding:'14px 0',borderRadius:12,border:'none',background:T.accent,color:'#fff',fontSize:14,fontWeight:700,letterSpacing:2,cursor:'pointer'}}>Done</button>
+    </div>
+  </div>);
+}
+
+// ── Opponent Panel ────────────────────────────────────────────────────────────
+function OppPanel({qData,q,onChange,mode,onOppShot}){
+  const qd=qData[q-1]||EMPTY_OPP();
+  function OTile({label,val,tKey,color,large}){
+    const t=useRef(null),f=useRef(false);
+    const dn=(e)=>{e.preventDefault();f.current=false;t.current=setTimeout(()=>{f.current=true;if(val>0){onChange(q,tKey,-1);vib(40);}},700);};
+    const up=()=>{clearTimeout(t.current);if(!f.current){onChange(q,tKey,1);vib(50);}};
+    const cl=()=>{clearTimeout(t.current);f.current=true;};
+    return(<div onPointerDown={dn} onPointerUp={up} onPointerLeave={cl} onPointerCancel={cl}
+      style={{background:color+'15',borderRadius:10,padding:large?'10px 4px':'7px 4px',border:'1px solid '+color+'44',display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',flex:1,minWidth:0}}>
+      <div style={{fontSize:large?10:8,color,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase',textAlign:'center',lineHeight:1.2,whiteSpace:'nowrap'}}>{label}</div>
+      <div style={{fontSize:large?30:22,fontWeight:900,color:T.t1,lineHeight:1}}>{val}</div>
+    </div>);
+  }
+  // Shot chips respond to Make/Miss mode
+  function ShotTile({label,shotKey,color}){
+    const active=!!mode;
+    const handle=()=>{if(active){onOppShot(shotKey);vib(50);}};
+    return(<div onClick={handle}
+      style={{background:active?mode==='make'?T.green+'22':T.red+'22':color+'15',borderRadius:10,padding:'10px 4px',border:'2px solid '+(active?mode==='make'?T.green:T.red:color+'44'),display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:active?'pointer':'default',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',flex:1.4,minWidth:0,transition:'all 0.15s'}}>
+      <div style={{fontSize:10,color:active?mode==='make'?T.green:T.red:color,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase',textAlign:'center',lineHeight:1.2}}>{label}</div>
+      <div style={{fontSize:30,fontWeight:900,color:T.t1,lineHeight:1}}>{shotKey==='fg2'?qd.fg2m:shotKey==='fg3'?qd.fg3m:qd.ftm||0}</div>
+      <div style={{fontSize:8,color:T.t4}}>{shotKey==='fg2'?(qd.fg2a||0)+' att':shotKey==='fg3'?(qd.fg3a||0)+' att':(qd.fta||0)+' att'}</div>
+    </div>);
+  }
+  const pts=oppQPts(qd);
+  return(<div style={{background:T.card,borderRadius:12,border:'1px solid '+T.border,boxShadow:T.shadow,overflow:'hidden'}}>
+    <div style={{padding:'8px 14px',background:'#fffbeb',borderBottom:'1px solid #fde68a',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+      <div style={{fontSize:10,fontWeight:700,color:'#92400e',letterSpacing:2,textTransform:'uppercase'}}>Opponent — Q{q}</div>
+      <div style={{fontSize:11,color:'#92400e',fontWeight:700}}>Score this Q: {pts}{mode&&<span style={{marginLeft:8,color:mode==='make'?T.green:T.red,animation:'pulse 1s ease-in-out infinite',display:'inline-block'}}>● {mode==='make'?'Make':'Miss'}</span>}</div>
+    </div>
+    <div style={{padding:'10px 12px',display:'flex',flexDirection:'column',gap:8}}>
+      {/* Shot chips — larger, respond to Make/Miss mode */}
+      <div style={{display:'flex',gap:6}}>
+        <ShotTile label="2PT" shotKey="fg2" color={T.blue}/>
+        <ShotTile label="3PT" shotKey="fg3" color='#7c3aed'/>
+        <ShotTile label="FT" shotKey="ft" color='#d97706'/>
+      </div>
+      {/* Stat chips — smaller */}
+      <div style={{display:'flex',gap:6}}>
+        <OTile label="O-REB" val={qd.oReb||0} tKey="oReb" color='#d97706'/>
+        <OTile label="D-REB" val={qd.dReb||0} tKey="dReb" color='#0891b2'/>
+        <OTile label="TO" val={qd.to||0} tKey="to" color={T.red}/>
+        <OTile label="FOUL" val={qd.foul||0} tKey="foul" color='#ea580c'/>
+      </div>
+    </div>
+  </div>);
+}
+
+// ── Game Stat Bar ─────────────────────────────────────────────────────────────
+function GameStatBar({stats,onChange}){
+  return(<div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3}}>
+    {GSTATS.map(({key,label,color})=>{
+      const value=(stats&&stats[key])||0;
+      const t=useRef(null),f=useRef(false);
+      const dn=(e)=>{e.preventDefault();f.current=false;t.current=setTimeout(()=>{f.current=true;if(value>0){onChange(key,-1);vib(40);}},700);};
+      const up=()=>{clearTimeout(t.current);if(!f.current){onChange(key,1);vib(50);}};
+      const cl=()=>{clearTimeout(t.current);f.current=true;};
+      return(<div key={key} onPointerDown={dn} onPointerUp={up} onPointerLeave={cl} onPointerCancel={cl}
+        style={{background:color+'18',borderRadius:8,padding:'6px 2px',border:'1px solid '+color+'44',display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation'}}>
+        <div style={{fontSize:8,color,fontWeight:700,textTransform:'uppercase',textAlign:'center',lineHeight:1}}>{label}</div>
+        <div style={{fontSize:22,fontWeight:900,color:T.t1,lineHeight:1}}>{value}</div>
+      </div>);
+    })}
+  </div>);
+}
+
+// ── Quarter Breakdown Table ───────────────────────────────────────────────────
+function QBreakdown({quarterData,shots,ftShots}){
+  if(!quarterData||!quarterData.length)return null;
+  const tot={shots:shots||[],ftShots:ftShots||[],...GSTATS.reduce((a,{key})=>({...a,[key]:quarterData.reduce((s,q)=>s+(q[key]||0),0)}),{})};
+  const cols=[...quarterData.map((_,i)=>({label:'Q'+(i+1),q:quarterData[i]})),{label:'TOT',q:tot}];
+  const rows=[
+    {label:'PTS',fn:q=>calcPts(q.shots||[],q.ftShots||[])},
+    {label:'FGM',fn:q=>(q.shots||[]).filter(s=>s.make).length},
+    {label:'FGA',fn:q=>(q.shots||[]).length},
+    {label:'FG%',fn:q=>{const m=(q.shots||[]).filter(s=>s.make).length,t=(q.shots||[]).length;return t?Math.round(m/t*100)+'%':'—';}},
+    {label:'3PM',fn:q=>(q.shots||[]).filter(s=>s.make&&s.type==='3-Pointer').length},
+    {label:'FTM',fn:q=>(q.ftShots||[]).filter(s=>s.make).length},
+    ...GSTATS.map(({key,label})=>({label,fn:q=>q[key]||0})),
+  ];
+  const C={padding:'7px 8px',textAlign:'center',fontSize:11,borderBottom:'1px solid '+T.border};
+  const H={...C,fontSize:9,color:T.t4,fontWeight:700,letterSpacing:1,textTransform:'uppercase'};
+  return(<div style={{background:T.card,borderRadius:12,border:'1px solid '+T.border,overflow:'hidden',boxShadow:T.shadow}}>
+    <div style={{padding:'10px 14px',background:T.bg,borderBottom:'1px solid '+T.border,fontSize:9,color:T.t2,fontWeight:700,letterSpacing:2,textTransform:'uppercase'}}>Quarter Breakdown</div>
+    <div style={{overflowX:'auto'}}>
+      <table style={{width:'100%',minWidth:260,borderCollapse:'collapse'}}>
+        <thead><tr><td style={{...H,textAlign:'left',paddingLeft:12}}>STAT</td>{cols.map(c=><td key={c.label} style={{...H,color:c.label==='TOT'?T.accent:H.color,fontWeight:c.label==='TOT'?900:700}}>{c.label}</td>)}</tr></thead>
+        <tbody>{rows.map((r,ri)=>(
+          <tr key={r.label} style={{background:ri%2===0?'transparent':T.bg+'88'}}>
+            <td style={{...C,textAlign:'left',paddingLeft:12,color:T.t2,fontWeight:700,fontSize:10,borderBottom:ri===rows.length-1?'none':C.borderBottom}}>{r.label}</td>
+            {cols.map((c,i)=><td key={i} style={{...C,color:c.label==='TOT'?T.t1:T.t2,fontWeight:c.label==='TOT'?700:400,borderBottom:ri===rows.length-1?'none':C.borderBottom}}>{r.fn(c.q)}</td>)}
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  </div>);
+}
+
+// ── Season Chart ──────────────────────────────────────────────────────────────
+function SeasonChart({player,sessions,pCol,onBack}){
+  const [filter,setFilter]=useState('All');
+  const [showHeat,setShowHeat]=useState(false);
+  const filtered=sessions.filter(s=>filter==='All'||s.sessionType===filter);
+  const allShots=filtered.flatMap(s=>s.shots||[]),allFT=filtered.flatMap(s=>s.ftShots||[]);
+  const makes=allShots.filter(s=>s.make).length,total=allShots.length,pct=total?Math.round(makes/total*100):null;
+  const tPts=calcPts(allShots,allFT);
+  const hd={};
+  [...TYPES,'Free Throw'].forEach(t=>{const s=t==='Free Throw'?allFT:allShots.filter(x=>x.type===t);hd[t]={makes:s.filter(x=>x.make).length,total:s.length};});
+  return(<div style={{display:'flex',flexDirection:'column',gap:12}}>
+    <button onClick={onBack} style={{background:'none',border:'none',color:pCol,cursor:'pointer',fontSize:11,letterSpacing:2,padding:0,textTransform:'uppercase',textAlign:'left',display:'flex',alignItems:'center',gap:6,fontWeight:700}}>← #{player.number} Sessions</button>
+    <div style={{background:T.card,borderRadius:12,border:'1px solid '+pCol+'55',boxShadow:T.shadow,padding:'14px 16px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}><div style={{width:9,height:9,borderRadius:'50%',background:pCol}}/><div style={{fontSize:9,letterSpacing:3,color:pCol,textTransform:'uppercase',fontWeight:700}}>#{player.number} Season Chart</div></div>
+      <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+        {[{v:total,l:'FGA',c:T.t1},{v:pct!==null?pct+'%':'—',l:'FG%',c:pct!==null?(pct>=50?T.green:T.red):T.t4},{v:tPts,l:'PTS',c:'#d97706'}].map(({v,l,c})=><div key={l} style={{textAlign:'center'}}><div style={{fontSize:22,fontWeight:900,color:c,lineHeight:1}}>{v}</div><div style={{fontSize:8,color:T.t4,textTransform:'uppercase',letterSpacing:1,marginTop:2}}>{l}</div></div>)}
+      </div>
+    </div>
+    <div style={{display:'flex',gap:8}}>
+      <div style={{display:'flex',gap:4,flex:1}}>
+        {['All','Game','Practice'].map(f=><button key={f} onClick={()=>setFilter(f)} style={{flex:1,padding:'8px 4px',borderRadius:8,border:'1px solid '+(filter===f?pCol:T.border),background:filter===f?pCol+'18':T.card,color:filter===f?pCol:T.t3,fontSize:10,cursor:'pointer',fontWeight:filter===f?700:400}}>{f==='Game'?'🏆 ':f==='Practice'?'🏋️ ':''}{f}</button>)}
+      </div>
+      <button onClick={()=>setShowHeat(h=>!h)} style={{padding:'8px 12px',borderRadius:8,border:'1px solid '+(showHeat?'#d97706':T.border),background:showHeat?'#fef3c7':T.card,color:showHeat?'#d97706':T.t3,fontSize:10,cursor:'pointer',fontWeight:showHeat?700:400}}>🔥 Heat</button>
+    </div>
+    {total===0?<div style={{textAlign:'center',padding:'40px',background:T.card,borderRadius:12,border:'1px solid '+T.border}}><div style={{fontSize:28,marginBottom:8}}>📍</div><div style={{fontSize:12,color:T.t4}}>No shots for this filter</div></div>:<Court shots={allShots} ftShots={allFT} mode={null} onShot={()=>{}} readOnly pCol={pCol} showHeat={showHeat} heatData={hd}/>}
+    <div><div style={{fontSize:10,letterSpacing:2,color:T.t3,textTransform:'uppercase',marginBottom:7,fontWeight:700}}>Zone Analysis</div><SPanel shots={allShots} ftShots={allFT}/></div>
+  </div>);
+}
+
+// ── Session Card ──────────────────────────────────────────────────────────────
+function SCard({session,onView,onDelete,pColor}){
+  const [conf,setConf]=useState(false);
+  const sh=session.shots||[],ft=session.ftShots||[];
+  const m=sh.filter(s=>s.make).length,pct=sh.length?Math.round(m/sh.length*100):null,p=calcPts(sh,ft);
+  const isG=session.sessionType==='Game';
+  return(<div style={{background:T.card,borderRadius:12,border:'1px solid '+T.border,boxShadow:T.shadow,overflow:'hidden'}}>
+    <div onClick={()=>!conf&&onView(session)} style={{padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4,flexWrap:'wrap'}}>
+          {pColor&&<div style={{width:8,height:8,borderRadius:'50%',background:pColor,flexShrink:0}}/>}
+          <span style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:'uppercase',padding:'2px 8px',borderRadius:10,background:isG?'#fef3c7':'#dcfce7',color:isG?'#92400e':'#14532d'}}>{isG?'🏆 Game':'🏋️ Practice'}</span>
+          {isG&&session.gameScore&&<span style={{fontSize:12,fontWeight:700,color:T.t1}}>{session.gameScore.my}–{session.gameScore.opp}</span>}
+          {session.plusMinus!=null&&<span style={{fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:10,background:session.plusMinus>=0?T.greenL:T.redL,color:session.plusMinus>=0?T.green:T.red}}>{session.plusMinus>=0?'+':''}{session.plusMinus}±</span>}
+        </div>
+        <div style={{fontSize:13,fontWeight:700,color:T.t1}}>{isG&&session.opponent?'vs '+session.opponent:session.label||fmtDate(session.date)}</div>
+        <div style={{fontSize:9,color:T.t4,marginTop:2}}>{fmtDate(session.date)}</div>
+        <div style={{fontSize:10,color:pct!==null?(pct>=50?T.green:T.red):T.t4,marginTop:3}}>{m}/{sh.length} FG{pct!==null?' · '+pct+'%':''}</div>
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+        <div style={{fontSize:22,fontWeight:900,color:'#d97706',lineHeight:1}}>{p}<span style={{fontSize:10,color:'#92400e',marginLeft:3}}>pts</span></div>
+        <div style={{fontSize:18,color:T.t4}}>›</div>
+      </div>
+    </div>
+    {!conf?(<div style={{borderTop:'1px solid '+T.border,padding:'6px 16px',display:'flex',justifyContent:'flex-end'}}>
+      <button onClick={(e)=>{e.stopPropagation();setConf(true);}} style={{padding:'4px 12px',borderRadius:6,border:'1px solid '+T.border,background:T.bg,color:T.t3,fontSize:10,cursor:'pointer'}}>🗑 Delete</button>
+    </div>):(<div style={{borderTop:'1px solid '+T.border,padding:'8px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,background:'#fef2f2'}}>
+      <span style={{fontSize:11,color:T.red}}>Delete this session?</span>
+      <div style={{display:'flex',gap:6}}>
+        <button onClick={()=>setConf(false)} style={{padding:'5px 10px',borderRadius:6,border:'1px solid '+T.border,background:T.card,color:T.t2,fontSize:11,cursor:'pointer'}}>Cancel</button>
+        <button onClick={()=>onDelete(session.id)} style={{padding:'5px 10px',borderRadius:6,border:'none',background:T.red,color:'#fff',fontSize:11,cursor:'pointer',fontWeight:700}}>Delete</button>
+      </div>
+    </div>)}
+  </div>);
+}
+
+// ── Play Log Viewer ───────────────────────────────────────────────────────────
+function PlayLogView({log,players,teamName,oppName}){
+  if(!log||log.length===0)return(
+    <div style={{textAlign:'center',padding:'60px 20px',background:T.card,borderRadius:12,border:'1px solid '+T.border,boxShadow:T.shadow}}>
+      <div style={{fontSize:32,marginBottom:10}}>📋</div>
+      <div style={{fontSize:12,color:T.t4,letterSpacing:2,textTransform:'uppercase'}}>No plays recorded yet</div>
+      <div style={{fontSize:11,color:T.t4,marginTop:8}}>Stats and shots will appear here as the game progresses</div>
+    </div>
+  );
+  // Build display list with quarter dividers
+  const items=[];
+  let lastQ=0;
+  log.forEach((entry,i)=>{
+    if(entry.q!==lastQ){
+      if(lastQ>0){
+        items.push({type:'divider',q:lastQ,label:lastQ===2?'— Half Time —':'— End of Q'+lastQ+' —'});
+      }
+      lastQ=entry.q;
+    }
+    items.push({type:'entry',...entry});
+  });
+  const PAL_map={};players.forEach((p,i)=>PAL_map[p.number]=pc(p,i));
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:6}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+        <div style={{fontSize:9,color:T.t3,fontWeight:700,letterSpacing:2,textTransform:'uppercase'}}>{log.length} plays recorded</div>
+      </div>
+      <div style={{background:T.card,borderRadius:12,border:'1px solid '+T.border,boxShadow:T.shadow,overflow:'hidden'}}>
+        {items.map((item,i)=>{
+          if(item.type==='divider')return(
+            <div key={'d'+item.q} style={{padding:'10px 16px',background:item.label.includes('Half')?'#fffbeb':'#f5f5f7',borderTop:'1px solid '+T.border,borderBottom:'1px solid '+T.border,textAlign:'center'}}>
+              <div style={{fontSize:11,fontWeight:900,color:item.label.includes('Half')?'#92400e':T.t2,letterSpacing:2,textTransform:'uppercase'}}>{item.label}</div>
+            </div>
+          );
+          const isHome=item.team==='home';
+          const pCol=isHome?(PAL_map[item.player]||T.accent):T.t3;
+          const isMake=item.action.startsWith('Made');
+          const isMiss=item.action.startsWith('Missed');
+          return(
+            <div key={item.id||i} style={{padding:'10px 16px',display:'flex',alignItems:'center',gap:10,borderBottom:i<items.length-1?'1px solid '+T.border:'none',background:i%2===0?'transparent':T.bg+'66'}}>
+              {/* Quarter badge */}
+              <div style={{width:26,height:26,borderRadius:13,background:T.accent,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <span style={{fontSize:9,color:'#fff',fontWeight:700}}>Q{item.q}</span>
+              </div>
+              {/* Team + player */}
+              <div style={{display:'flex',alignItems:'center',gap:6,minWidth:70,flexShrink:0}}>
+                <div style={{width:8,height:8,borderRadius:'50%',background:pCol,flexShrink:0}}/>
+                <span style={{fontSize:12,fontWeight:700,color:isHome?pCol:T.t3}}>{isHome?'#'+item.player:(oppName||'Opponent')}</span>
+              </div>
+              {/* Action */}
+              <div style={{flex:1,fontSize:12,color:T.t1,fontWeight:isMake?700:400}}>
+                <span style={{color:isMake?T.green:isMiss?T.red:T.t2}}>{item.action}</span>
+              </div>
+              {/* Points */}
+              {item.pts>0&&<div style={{fontSize:13,fontWeight:900,color:'#d97706',flexShrink:0}}>+{item.pts}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── History View ──────────────────────────────────────────────────────────────
+function HistoryView({teamMeta,players,sessions,onDelSession}){
+  const [hv,setHv]=useState('overview');
+  const [hpData,setHpData]=useState(null);
+  const [viewing,setViewing]=useState(null);
+  const goPlayer=(p,i)=>{setHpData({p,i});setHv('player');};
+  const goSession=s=>{setViewing(s);setHv('session');};
+  const aS=sessions.flatMap(s=>s.shots||[]),aF=sessions.flatMap(s=>s.ftShots||[]);
+  const sMk=aS.filter(s=>s.make).length,sPct=aS.length?Math.round(sMk/aS.length*100):null,sPts=calcPts(aS,aF);
+  const sStats=GSTATS.reduce((a,{key})=>({...a,[key]:sessions.reduce((s,ps)=>s+(ps[key]||0),0)}),{});
+  const gSess=sessions.filter(s=>s.sessionType==='Game'),prSess=sessions.filter(s=>s.sessionType!=='Game');
+  const gSh=gSess.flatMap(s=>s.shots||[]),prSh=prSess.flatMap(s=>s.shots||[]);
+  const gPct=gSh.length?Math.round(gSh.filter(s=>s.make).length/gSh.length*100):null;
+  const prPct=prSh.length?Math.round(prSh.filter(s=>s.make).length/prSh.length*100):null;
+  const pRows=players.map((p,i)=>{
+    const ps=sessions.filter(s=>s.playerId===p.id),sh=ps.flatMap(s=>s.shots||[]),ft=ps.flatMap(s=>s.ftShots||[]);
+    const m=sh.filter(s=>s.make).length,tr=calcTrend(ps);
+    const gS=ps.filter(s=>s.sessionType==='Game'),prS=ps.filter(s=>s.sessionType!=='Game');
+    const gSh2=gS.flatMap(s=>s.shots||[]),prSh2=prS.flatMap(s=>s.shots||[]);
+    const pms=gS.filter(s=>s.plusMinus!=null);
+    const avgPM=pms.length>0?Math.round(pms.reduce((a,s)=>a+(s.plusMinus||0),0)/pms.length):null;
+    return{...p,col:pc(p,i),idx:i,sessions:ps.length,makes:m,shots:sh.length,pct:sh.length?Math.round(m/sh.length*100):null,pts:calcPts(sh,ft),trend:tr,gamePct:gSh2.length?Math.round(gSh2.filter(s=>s.make).length/gSh2.length*100):null,pracPct:prSh2.length?Math.round(prSh2.filter(s=>s.make).length/prSh2.length*100):null,avgPM,...GSTATS.reduce((a,{key})=>({...a,[key]:ps.reduce((s,ps2)=>s+(ps2[key]||0),0)}),{})};
+  });
+  const hp=hpData?.p,hpI=hpData?.i||0,hpC=hp?pc(hp,hpI):T.accent;
+  const hpS=hp?sessions.filter(s=>s.playerId===hp.id):[];
+  const hpSh=hpS.flatMap(s=>s.shots||[]),hpFT=hpS.flatMap(s=>s.ftShots||[]);
+  const hpMk=hpSh.filter(s=>s.make).length,hpPct=hpSh.length?Math.round(hpMk/hpSh.length*100):null,hpPts=calcPts(hpSh,hpFT);
+  const hpSt=GSTATS.reduce((a,{key})=>({...a,[key]:hpS.reduce((s,ps)=>s+(ps[key]||0),0)}),{});
+  const hpTr=calcTrend(hpS);
+  const TI={up:'↑',down:'↓',flat:'→'}[hpTr]||'',TC2={up:T.green,down:T.red,flat:T.t4}[hpTr]||T.t4;
+  const hpGS=hpS.filter(s=>s.sessionType==='Game'),hpPS=hpS.filter(s=>s.sessionType!=='Game');
+  const hpGSh=hpGS.flatMap(s=>s.shots||[]),hpPSh=hpPS.flatMap(s=>s.shots||[]);
+  const hpGPct=hpGSh.length?Math.round(hpGSh.filter(s=>s.make).length/hpGSh.length*100):null;
+  const hpPPct=hpPSh.length?Math.round(hpPSh.filter(s=>s.make).length/hpPSh.length*100):null;
+  const hpPMs=hpGS.filter(s=>s.plusMinus!=null);
+  const hpAvgPM=hpPMs.length>0?Math.round(hpPMs.reduce((a,s)=>a+(s.plusMinus||0),0)/hpPMs.length):null;
+  const vP=viewing?players.find(p=>p.id===viewing.playerId):null;
+  const vI=viewing?players.findIndex(p=>p.id===viewing.playerId):0;
+  const vC=pc(vP,vI);
+  if(hv==='chart'&&hp)return<SeasonChart player={hp} sessions={hpS} pCol={hpC} onBack={()=>setHv('player')}/>;
+  if(hv==='session'&&viewing)return(<div style={{display:'flex',flexDirection:'column',gap:12}}>
+    <button onClick={()=>{setHv('player');}} style={{background:'none',border:'none',color:hpC,cursor:'pointer',fontSize:11,letterSpacing:2,padding:0,textTransform:'uppercase',textAlign:'left',fontWeight:700}}>← #{hp?.number} Sessions</button>
+    <div style={{background:T.card,borderRadius:12,border:'1px solid '+T.border,boxShadow:T.shadow,padding:'16px',textAlign:'center'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,marginBottom:4}}>
+        <div style={{width:8,height:8,borderRadius:'50%',background:vC}}/>
+        <span style={{fontSize:9,color:vC,letterSpacing:2,textTransform:'uppercase',fontWeight:700}}>#{viewing.playerNumber}</span>
+        <span style={{fontSize:9,fontWeight:700,padding:'2px 8px',borderRadius:10,background:viewing.sessionType==='Game'?'#fef3c7':'#dcfce7',color:viewing.sessionType==='Game'?'#92400e':'#14532d'}}>{viewing.sessionType==='Game'?'🏆 Game':'🏋️ Practice'}</span>
+        {viewing.sessionType==='Game'&&viewing.gameScore&&<span style={{fontSize:14,fontWeight:900,color:T.t1}}>{viewing.gameScore.my}–{viewing.gameScore.opp}</span>}
+      </div>
+      <div style={{fontSize:15,fontWeight:700,color:T.t1}}>{viewing.sessionType==='Game'&&viewing.opponent?'vs '+viewing.opponent:viewing.label||fmtDate(viewing.date)}</div>
+      <div style={{fontSize:9,color:T.t4,marginTop:3}}>{fmtDate(viewing.date)}</div>
+      {viewing.plusMinus!=null&&<div style={{marginTop:8,display:'inline-block',padding:'5px 14px',borderRadius:20,background:viewing.plusMinus>=0?T.greenL:T.redL,color:viewing.plusMinus>=0?T.green:T.red,fontSize:15,fontWeight:900}}>{viewing.plusMinus>=0?'+':''}{viewing.plusMinus} ±</div>}
+    </div>
+    <Court shots={viewing.shots||[]} ftShots={viewing.ftShots||[]} mode={null} onShot={()=>{}} readOnly pCol={vC}/>
+    {GSTATS.filter(({key})=>(viewing[key]||0)>0).length>0&&<div style={{display:'flex',gap:6,flexWrap:'wrap',justifyContent:'center'}}>{GSTATS.filter(({key})=>(viewing[key]||0)>0).map(({key,label,color})=><div key={key} style={{display:'flex',alignItems:'center',gap:5,background:color+'15',borderRadius:20,padding:'5px 12px',border:'1px solid '+color+'44'}}><div style={{width:6,height:6,borderRadius:'50%',background:color}}/><span style={{fontSize:10,color:T.t3}}>{label}</span><span style={{fontSize:12,color:T.t1,fontWeight:700,marginLeft:2}}>{viewing[key]}</span></div>)}</div>}
+    {viewing.quarterData&&<QBreakdown quarterData={viewing.quarterData} shots={viewing.shots} ftShots={viewing.ftShots}/>}
+    {viewing.opponentData&&(()=>{const od=viewing.opponentData;const t=od.total||EMPTY_OPP();const pts=t.fg2m*2+t.fg3m*3;return(<div style={{background:T.card,borderRadius:12,border:'1px solid '+T.border,boxShadow:T.shadow,padding:'14px 16px'}}><div style={{fontSize:9,color:T.t2,fontWeight:700,letterSpacing:2,textTransform:'uppercase',marginBottom:10}}>Opponent Stats</div><div style={{display:'flex',gap:6,flexWrap:'wrap'}}>{[['FG2M',t.fg2m],['FG2A',t.fg2a],['FG3M',t.fg3m],['FG3A',t.fg3a],['PTS',pts],['O-REB',t.oReb],['D-REB',t.dReb],['TO',t.to],['FOUL',t.foul]].map(([l,v])=><div key={l} style={{background:T.bg,borderRadius:8,padding:'8px 12px',textAlign:'center'}}><div style={{fontSize:9,color:T.t4,fontWeight:700,textTransform:'uppercase'}}>{l}</div><div style={{fontSize:20,fontWeight:900,color:T.t1}}>{v||0}</div></div>)}</div></div>);})()}
+    <div><div style={{fontSize:10,letterSpacing:2,color:T.t3,textTransform:'uppercase',marginBottom:7,fontWeight:700}}>Shot Analysis</div><SPanel shots={viewing.shots||[]} ftShots={viewing.ftShots||[]}/></div>
+    {viewing.playLog&&viewing.playLog.length>0&&(
+      <div>
+        <div style={{fontSize:10,letterSpacing:2,color:T.t3,textTransform:'uppercase',marginBottom:7,fontWeight:700}}>Play Log</div>
+        <PlayLogView log={viewing.playLog} players={players} teamName={teamMeta.name} oppName={viewing.opponent}/>
+      </div>
+    )}
+  </div>);
+  if(hv==='player'&&hp)return(<div style={{display:'flex',flexDirection:'column',gap:12}}>
+    <button onClick={()=>{setHv('overview');setHpData(null);}} style={{background:'none',border:'none',color:T.green,cursor:'pointer',fontSize:11,letterSpacing:2,padding:0,textTransform:'uppercase',textAlign:'left',fontWeight:700}}>← Season Overview</button>
+    <div style={{background:T.card,borderRadius:12,border:'2px solid '+hpC+'44',boxShadow:T.shadow,padding:'16px 18px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}><div style={{width:9,height:9,borderRadius:'50%',background:hpC}}/><div style={{fontSize:9,letterSpacing:3,color:hpC,textTransform:'uppercase',fontWeight:700}}>#{hp.number} — Season</div></div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+        <div>
+          <div style={{fontSize:20,fontWeight:900,color:T.t1}}>{hpSh.length} FG</div>
+          <div style={{fontSize:24,fontWeight:900,color:'#d97706',marginTop:4}}>⭐ {hpPts} <span style={{fontSize:12,color:'#92400e',fontWeight:400}}>pts</span></div>
+          <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap'}}>
+            {hpGPct!==null&&<span style={{fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:20,background:'#fef3c7',color:'#92400e'}}>🏆 {hpGPct}%</span>}
+            {hpPPct!==null&&<span style={{fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:20,background:'#dcfce7',color:'#14532d'}}>🏋️ {hpPPct}%</span>}
+            {hpAvgPM!==null&&<span style={{fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:20,background:hpAvgPM>=0?T.greenL:T.redL,color:hpAvgPM>=0?T.green:T.red}}>Avg ±{hpAvgPM>=0?'+':''}{hpAvgPM}</span>}
+          </div>
+          <div style={{fontSize:9,color:T.t4,marginTop:4}}>{hpS.length} sessions</div>
+          <div style={{display:'flex',gap:5,flexWrap:'wrap',marginTop:8}}>{GSTATS.map(({key,label,color})=>hpSt[key]>0&&<div key={key} style={{background:color+'15',borderRadius:20,padding:'2px 8px',border:'1px solid '+color+'44',fontSize:9,color}}>{label} {hpSt[key]}</div>)}</div>
+        </div>
+        <div style={{textAlign:'right'}}>
+          <div style={{display:'flex',alignItems:'baseline',gap:5,justifyContent:'flex-end'}}>
+            <div style={{fontSize:40,fontWeight:900,lineHeight:1,color:hpPct!=null?(hpPct>=50?T.green:T.red):T.t4}}>{hpPct!==null?hpPct+'%':'—'}</div>
+            {hpTr&&<div style={{fontSize:22,fontWeight:900,color:TC2,lineHeight:1}}>{TI}</div>}
+          </div>
+          <div style={{fontSize:9,color:T.t4,marginTop:2}}>Overall FG%</div>
+        </div>
+      </div>
+    </div>
+    <div style={{display:'flex',gap:8}}>
+      <button onClick={()=>setHv('chart')} style={{flex:1,padding:'10px 0',borderRadius:10,border:'1px solid '+hpC,background:hpC+'15',color:hpC,fontSize:11,letterSpacing:2,cursor:'pointer',textTransform:'uppercase',fontWeight:700}}>📍 Season Chart</button>
+      {hpS.length>0&&<button onClick={()=>dlCSV(teamMeta.name+'-'+hp.number+'.csv',mkCSV(teamMeta.name,hpS))} style={{flex:1,padding:'10px 0',borderRadius:10,border:'1px solid '+T.border,background:T.card,color:T.green,fontSize:11,letterSpacing:2,cursor:'pointer',textTransform:'uppercase',fontWeight:700}}>📥 CSV</button>}
+    </div>
+    {hpS.length===0?<div style={{textAlign:'center',padding:'40px',background:T.card,borderRadius:12,border:'1px solid '+T.border}}><div style={{fontSize:28,marginBottom:8}}>📋</div><div style={{fontSize:12,color:T.t4}}>No sessions yet</div></div>:(
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        {hpS.map(s=><SCard key={s.id} session={s} onView={goSession} onDelete={onDelSession} pColor={hpC}/>)}
+      </div>
+    )}
+  </div>);
+  return(<div style={{display:'flex',flexDirection:'column',gap:12}}>
+    {sessions.length===0&&<div style={{textAlign:'center',padding:'60px 20px',background:T.card,borderRadius:12,border:'1px solid '+T.border}}><div style={{fontSize:36,marginBottom:12}}>📋</div><div style={{fontSize:13,color:T.t4,textTransform:'uppercase',letterSpacing:2}}>No sessions saved yet</div></div>}
+    {sessions.length>0&&<>
+      <div style={{background:T.card,borderRadius:12,border:'1px solid '+T.border,boxShadow:T.shadow,padding:'16px 18px'}}>
+        <div style={{fontSize:9,color:T.green,fontWeight:700,letterSpacing:3,textTransform:'uppercase',marginBottom:10}}>Team Season Totals</div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+          <div>
+            <div style={{fontSize:22,fontWeight:900,color:T.t1}}>{aS.length} FG attempts</div>
+            <div style={{fontSize:24,fontWeight:900,color:'#d97706',marginTop:4}}>⭐ {sPts} pts</div>
+            <div style={{display:'flex',gap:8,marginTop:6,flexWrap:'wrap'}}>
+              {gPct!==null&&<span style={{fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:20,background:'#fef3c7',color:'#92400e'}}>🏆 Games: {gPct}%</span>}
+              {prPct!==null&&<span style={{fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:20,background:'#dcfce7',color:'#14532d'}}>🏋️ Practice: {prPct}%</span>}
+            </div>
+            <div style={{fontSize:9,color:T.t4,marginTop:4}}>{sessions.length} sessions · {gSess.length} games · {prSess.length} practices</div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:42,fontWeight:900,lineHeight:1,color:sPct!=null?(sPct>=50?T.green:T.red):T.t4}}>{sPct!==null?sPct+'%':'—'}</div>
+            <div style={{fontSize:9,color:T.t4}}>Overall FG%</div>
+          </div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
+          {GSTATS.map(({key,label,color})=><div key={key} style={{background:color+'15',borderRadius:8,padding:'6px 2px',display:'flex',flexDirection:'column',alignItems:'center',gap:2,border:'1px solid '+color+'33'}}><div style={{fontSize:7,color,fontWeight:700,textTransform:'uppercase',textAlign:'center'}}>{label}</div><div style={{fontSize:16,fontWeight:900,color:T.t1}}>{sStats[key]}</div></div>)}
+        </div>
+      </div>
+      <button onClick={()=>dlCSV(teamMeta.name+'-season.csv',mkCSV(teamMeta.name,sessions))} style={{padding:'10px 0',borderRadius:10,border:'1px solid '+T.border,background:T.card,color:T.green,fontSize:11,letterSpacing:2,cursor:'pointer',textTransform:'uppercase',width:'100%',fontWeight:700,boxShadow:T.shadow}}>📥 Export Team CSV</button>
+      {pRows.filter(r=>r.sessions>0).length>0&&(
+        <div style={{background:T.card,borderRadius:12,border:'1px solid '+T.border,boxShadow:T.shadow,overflow:'hidden'}}>
+          <div style={{padding:'10px 14px',background:T.bg,borderBottom:'1px solid '+T.border,fontSize:9,color:T.green,fontWeight:700,letterSpacing:2,textTransform:'uppercase'}}>Player Breakdown — tap to view</div>
+          {pRows.filter(r=>r.sessions>0).map((r,i,arr)=>(
+            <div key={r.id} onClick={()=>goPlayer(r,r.idx)} style={{padding:'12px 16px',display:'flex',alignItems:'center',gap:12,cursor:'pointer',borderBottom:i<arr.length-1?'1px solid '+T.border:'none',transition:'background 0.1s'}}
+              onMouseEnter={e=>e.currentTarget.style.background=T.bg}
+              onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              <div style={{display:'flex',alignItems:'center',gap:8,minWidth:80}}>
+                <div style={{width:10,height:10,borderRadius:'50%',background:r.col,flexShrink:0}}/>
+                <span style={{fontSize:15,fontWeight:900,color:T.t1}}>#{r.number}</span>
+                {r.trend&&<span style={{fontSize:14,color:{up:T.green,down:T.red,flat:T.t4}[r.trend]}}>{({up:'↑',down:'↓',flat:'→'})[r.trend]}</span>}
+              </div>
+              <div style={{flex:1,display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+                <div style={{textAlign:'center'}}><div style={{fontSize:16,fontWeight:900,color:'#d97706',lineHeight:1}}>{r.pts}</div><div style={{fontSize:8,color:T.t4,textTransform:'uppercase',letterSpacing:1,marginTop:1}}>pts</div></div>
+                <div style={{textAlign:'center'}}><div style={{fontSize:14,fontWeight:700,color:r.pct!=null?(r.pct>=50?T.green:T.red):T.t4,lineHeight:1}}>{r.pct!=null?r.pct+'%':'—'}</div><div style={{fontSize:8,color:T.t4,textTransform:'uppercase',letterSpacing:1,marginTop:1}}>FG%</div></div>
+                {r.gamePct!=null&&<span style={{fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:20,background:'#fef3c7',color:'#92400e'}}>🏆 {r.gamePct}%</span>}
+                {r.pracPct!=null&&<span style={{fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:20,background:'#dcfce7',color:'#14532d'}}>🏋️ {r.pracPct}%</span>}
+                {r.avgPM!=null&&<span style={{fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:20,background:r.avgPM>=0?T.greenL:T.redL,color:r.avgPM>=0?T.green:T.red}}>±{r.avgPM>=0?'+':''}{r.avgPM}</span>}
+              </div>
+              <div style={{fontSize:18,color:T.t4,flexShrink:0}}>›</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>}
+  </div>);
+}
+
+// ── Save Modal ────────────────────────────────────────────────────────────────
+function SaveModal({sessionType,players,draftPlayers,myScore,oppScore,opponent,onSave,onCancel}){
+  const [lbl,setLbl]=useState('');
+  return(<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:999}} onClick={onCancel}>
+    <div style={{background:T.card,borderRadius:'20px 20px 0 0',padding:24,width:'100%',maxWidth:480,maxHeight:'85vh',overflowY:'auto',animation:'slideup 0.2s ease'}} onClick={e=>e.stopPropagation()}>
+      <div style={{width:40,height:4,background:T.border,borderRadius:2,margin:'0 auto 20px'}}/>
+      <div style={{fontSize:13,fontWeight:700,color:T.t1,textAlign:'center',letterSpacing:2,textTransform:'uppercase',marginBottom:16}}>Save {sessionType==='Game'?'Game':'Practice'}</div>
+      {sessionType==='Game'&&opponent&&<div style={{background:'#fef3c7',borderRadius:10,padding:'10px 14px',marginBottom:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={{fontSize:11,color:'#92400e',fontWeight:700}}>vs {opponent}</span><span style={{fontSize:20,fontWeight:900,color:T.t1}}>{myScore} — {oppScore}</span></div>}
+      <div style={{background:T.bg,borderRadius:10,padding:'10px 14px',marginBottom:14}}>
+        <div style={{fontSize:9,color:T.t4,fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:8}}>Players with data</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {players.map((p,i)=>{const col=pc(p,i);const hd=draftPlayers.find(d=>d.id===p.id)?.hasData;return(<div key={p.id} style={{display:'flex',alignItems:'center',gap:5,background:hd?col+'18':T.card,borderRadius:8,padding:'5px 10px',border:'1px solid '+(hd?col+'55':T.border),opacity:hd?1:0.35}}><div style={{width:7,height:7,borderRadius:'50%',background:col}}/><span style={{fontSize:11,color:hd?T.t1:T.t4,fontWeight:700}}>#{p.number}</span>{!hd&&<span style={{fontSize:8,color:T.t4}}>no data</span>}</div>);})
+          }
+        </div>
+      </div>
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:9,color:T.t4,fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:6}}>Session label (optional)</div>
+        <input value={lbl} onChange={e=>setLbl(e.target.value)} placeholder="e.g. Evening practice, Championship game…" maxLength={40} style={{width:'100%',boxSizing:'border-box',background:T.bg,border:'1px solid '+T.border,borderRadius:10,padding:'12px',color:T.t1,fontSize:14,outline:'none'}}/>
+      </div>
+      <div style={{display:'flex',gap:10}}>
+        <button onClick={onCancel} style={{flex:1,padding:'14px 0',borderRadius:12,border:'1px solid '+T.border,background:T.card,color:T.t2,fontSize:13,cursor:'pointer',fontWeight:600}}>Cancel</button>
+        <button onClick={()=>onSave({label:lbl.trim()})} style={{flex:2,padding:'14px 0',borderRadius:12,border:'none',background:T.accent,color:'#fff',fontSize:14,fontWeight:700,letterSpacing:2,cursor:'pointer',textTransform:'uppercase'}}>💾 Save</button>
+      </div>
+    </div>
+  </div>);
+}
+
+// ── Session Type Screen ───────────────────────────────────────────────────────
+function SessionTypeScreen({teamName,onSelect,onBack}){
+  return(<div style={{minHeight:'100vh',background:T.bg,display:'flex',flexDirection:'column',alignItems:'center',maxWidth:520,margin:'0 auto'}}>
+    <div style={{width:'100%',background:T.card,borderBottom:'1px solid '+T.border,padding:'36px 20px 20px',textAlign:'center',boxShadow:T.shadow,position:'relative'}}>
+      <button onClick={onBack} style={{position:'absolute',left:20,top:38,background:'none',border:'none',color:T.accent,cursor:'pointer',fontSize:12,fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>← Teams</button>
+      <div style={{fontSize:9,letterSpacing:4,color:T.accent,textTransform:'uppercase',fontWeight:700,marginBottom:4}}>🏀 {teamName}</div>
+      <div style={{fontSize:24,fontWeight:900,color:T.t1,letterSpacing:3,textTransform:'uppercase'}}>New Session</div>
+    </div>
+    <div style={{width:'100%',padding:'32px 20px',display:'flex',flexDirection:'column',gap:16}}>
+      <div style={{fontSize:11,color:T.t3,textAlign:'center',letterSpacing:2,textTransform:'uppercase',marginBottom:4}}>What type of session?</div>
+      <button onClick={()=>onSelect('Practice')} style={{width:'100%',padding:'28px 24px',borderRadius:16,border:'2px solid #86efac',background:'#f0fdf4',cursor:'pointer',textAlign:'left',boxShadow:T.shadow}}>
+        <div style={{fontSize:38,marginBottom:8}}>🏋️</div>
+        <div style={{fontSize:20,fontWeight:900,color:'#14532d',letterSpacing:2,textTransform:'uppercase',marginBottom:4}}>Practice</div>
+        <div style={{fontSize:13,color:'#166534',lineHeight:1.5}}>Track shooting from the court map.<br/>Clean and focused — shots only.</div>
+      </button>
+      <button onClick={()=>onSelect('Game')} style={{width:'100%',padding:'28px 24px',borderRadius:16,border:'2px solid #fde68a',background:'#fffbeb',cursor:'pointer',textAlign:'left',boxShadow:T.shadow}}>
+        <div style={{fontSize:38,marginBottom:8}}>🏆</div>
+        <div style={{fontSize:20,fontWeight:900,color:'#78350f',letterSpacing:2,textTransform:'uppercase',marginBottom:4}}>Game</div>
+        <div style={{fontSize:13,color:'#92400e',lineHeight:1.5}}>Full game stats: shots, live score,<br/>quarters, opponent tracking, +/−.</div>
+      </button>
+    </div>
+  </div>);
+}
+
+// ── Game Setup ────────────────────────────────────────────────────────────────
+function GameSetup({teamName,onStart,onBack}){
+  const [opp,setOpp]=useState('');
+  return(<div style={{minHeight:'100vh',background:T.bg,display:'flex',flexDirection:'column',alignItems:'center',maxWidth:520,margin:'0 auto'}}>
+    <div style={{width:'100%',background:T.card,borderBottom:'1px solid '+T.border,padding:'36px 20px 20px',textAlign:'center',boxShadow:T.shadow,position:'relative'}}>
+      <button onClick={onBack} style={{position:'absolute',left:20,top:38,background:'none',border:'none',color:T.accent,cursor:'pointer',fontSize:12,fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>← Back</button>
+      <div style={{fontSize:9,letterSpacing:4,color:T.accent,textTransform:'uppercase',fontWeight:700,marginBottom:4}}>🏆 Game Setup</div>
+      <div style={{fontSize:24,fontWeight:900,color:T.t1,letterSpacing:3,textTransform:'uppercase'}}>{teamName}</div>
+    </div>
+    <div style={{width:'100%',padding:'32px 20px',display:'flex',flexDirection:'column',gap:20}}>
+      <div>
+        <div style={{fontSize:11,color:T.t3,fontWeight:700,letterSpacing:2,textTransform:'uppercase',marginBottom:10}}>Opponent Name</div>
+        <input value={opp} onChange={e=>setOpp(e.target.value)} placeholder="e.g. Eagles, Raptors…" maxLength={30} autoFocus
+          onKeyDown={e=>e.key==='Enter'&&onStart(opp.trim()||'Opponent')}
+          style={{width:'100%',boxSizing:'border-box',background:T.card,border:'2px solid '+T.border,borderRadius:14,padding:'18px',color:T.t1,fontSize:22,fontWeight:700,outline:'none',boxShadow:T.shadow,textAlign:'center'}}/>
+      </div>
+      <button onClick={()=>onStart(opp.trim()||'Opponent')} style={{width:'100%',padding:'18px 0',borderRadius:14,border:'none',background:'linear-gradient(135deg,#d97706,#f59e0b)',color:'#fff',fontSize:17,fontWeight:900,letterSpacing:4,cursor:'pointer',textTransform:'uppercase',boxShadow:'0 4px 16px rgba(217,119,6,0.35)'}}>🏆 Start Game</button>
+    </div>
+  </div>);
+}
+
+// ── Main Tracker ──────────────────────────────────────────────────────────────
+function Tracker({teamMeta,players:initPlayers,sessionType,opponent,sessions:initSessions,onBack,onPersist}){
+  const isLandscape=useIsLandscape();
+  const SK=TK(teamMeta.id);
+  const [players,setPlayers]=useState(initPlayers);
+  const [sessions,setSessions]=useState(initSessions);
+  const [view,setView]=useState('today');
+  const [activePid,setActivePid]=useState(()=>initPlayers.find(p=>p.active!==false)?.id||null);
+  const [mode,setMode]=useState(null);
+  const [notice,setNotice]=useState(null);
+  const [showHeat,setShowHeat]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [editPid,setEditPid]=useState(null);
+  const [editNum,setEditNum]=useState('');
+  const [confDelP,setConfDelP]=useState(false);
+  const [addOpen,setAddOpen]=useState(false);
+  const [newNum,setNewNum]=useState('');
+  const [confClear,setConfClear]=useState(false);
+  const [scoreEditOpen,setScoreEditOpen]=useState(false);
+  const isGame=sessionType==='Game';
+  const ntR=useRef(null);
+  const chipTimer=useRef(null),chipFired=useRef(false);
+
+  // Practice drafts: {playerId: {shots, ftShots}}
+  const [pDrafts,setPDrafts]=useState({});
+
+  // Game state
+  const initGS=useCallback(()=>({
+    q:1, myAdj:0, oppAdj:0,
+    pdata:Object.fromEntries(initPlayers.map(p=>[p.id,{active:p.active!==false,qs:[EMPTY_QSTAT(),EMPTY_QSTAT(),EMPTY_QSTAT(),EMPTY_QSTAT()]}])),
+    oppQs:[EMPTY_OPP(),EMPTY_OPP(),EMPTY_OPP(),EMPTY_OPP()],
+    stints:Object.fromEntries(initPlayers.filter(p=>p.active!==false).map(p=>[p.id,[{s_my:0,s_opp:0}]])),
+    playLog:[]
+  }),[]);
+  const [gs,setGs]=useState(initGS);
+
+  const persist=useCallback((np,ns)=>{
+    lsSet(SK,{players:np,sessions:ns});
+    onPersist({playerCount:np.length,sessionCount:ns.length,totalPoints:calcPts(ns.flatMap(s=>s.shots||[]),ns.flatMap(s=>s.ftShots||[]))});
+  },[SK,onPersist]);
+
+  const calcMyScore=useCallback((g)=>players.reduce((t,p)=>{const pd=g.pdata[p.id];if(!pd)return t;return t+pd.qs.reduce((s,q)=>s+calcPts(q.shots||[],q.ftShots||[]),0);},0)+(g.myAdj||0),[players]);
+  const calcOppScore=useCallback((g)=>(g.oppQs||[]).reduce((t,q)=>t+oppQPts(q),0)+(g.oppAdj||0),[]);
+  const myScore=isGame?calcMyScore(gs):0;
+  const oppScore=isGame?calcOppScore(gs):0;
+
+  const aIdx=players.findIndex(p=>p.id===activePid);
+  const player=players[aIdx]||null;
+  const pC=pc(player,aIdx);
+  const pDraft=pDrafts[activePid]||{shots:[],ftShots:[]};
+  const gqd=isGame&&gs.pdata[activePid]?gs.pdata[activePid].qs[gs.q-1]:{shots:[],ftShots:[],...GSTATS.reduce((a,{key})=>({...a,[key]:0}),{})};
+  const dSh=isGame?gqd.shots||[]:pDraft.shots||[];
+  const dFT=isGame?gqd.ftShots||[]:pDraft.ftShots||[];
+
+  const hd=useCallback(()=>{
+    const ps=sessions.filter(s=>s.playerId===activePid),aS=ps.flatMap(s=>s.shots||[]),z={};
+    [...TYPES,'Free Throw'].forEach(t=>{const s=t==='Free Throw'?ps.flatMap(s=>s.ftShots||[]):aS.filter(x=>x.type===t);z[t]={makes:s.filter(x=>x.make).length,total:s.length};});
+    return z;
+  },[sessions,activePid]);
+
+  const anyData=isGame?players.some(p=>{const pd=gs.pdata[p.id];return pd&&pd.active&&hasDraftQ(pd.qs);}):players.some(p=>{const d=pDrafts[p.id]||{shots:[],ftShots:[]};return (d.shots||[]).length>0||(d.ftShots||[]).length>0;});
+  const curHasData=isGame?(gs.pdata[activePid]&&hasDraftQ(gs.pdata[activePid].qs)):((pDraft.shots||[]).length>0||(pDraft.ftShots||[]).length>0);
+
+  const isChipActive=(p)=>isGame?(gs.pdata[p.id]?.active!==false):(p.active!==false);
+
+  const chipDown=(p)=>(e)=>{
+    chipFired.current=false;
+    chipTimer.current=setTimeout(()=>{
+      chipFired.current=true;
+      if(isGame){
+        const my=calcMyScore(gs),opp=calcOppScore(gs);
+        const isActive=gs.pdata[p.id]?.active!==false;
+        setGs(g=>{
+          const stints=[...(g.stints[p.id]||[])];
+          if(isActive&&stints.length>0){const last=stints[stints.length-1];if(last.e_my===undefined){stints[stints.length-1]={...last,e_my:my,e_opp:opp};}}
+          else{stints.push({s_my:my,s_opp:opp});}
+          return{...g,pdata:{...g.pdata,[p.id]:{...g.pdata[p.id],active:!isActive}},stints:{...g.stints,[p.id]:stints}};
+        });
+      } else {
+        const np=players.map(pl=>pl.id===p.id?{...pl,active:pl.active===false?true:false}:pl);
+        setPlayers(np);persist(np,sessions);
+      }
+      vib(60);
+    },700);
+  };
+  const chipUp=(p)=>()=>{clearTimeout(chipTimer.current);if(chipFired.current)return;if(activePid===p.id){setEditPid(p.id);setEditNum(p.number);setConfDelP(false);}else{setActivePid(p.id);setMode(null);setShowHeat(false);}};
+  const chipCancel=()=>{clearTimeout(chipTimer.current);};
+
+  const handleShot=useCallback((x,y)=>{
+    if(!activePid||!mode)return;
+    const make=mode==='make',isFT=inFT(x,y);
+    const shot={id:Date.now(),x,y,make,date:new Date().toISOString()};
+    if(isGame){
+      setGs(g=>{const newQs=g.pdata[activePid].qs.map((q,i)=>{if(i!==g.q-1)return q;if(isFT)return{...q,ftShots:[...(q.ftShots||[]),shot]};return{...q,shots:[...(q.shots||[]),{...shot,type:shotType(x,y)}]};});return{...g,pdata:{...g.pdata,[activePid]:{...g.pdata[activePid],qs:newQs}}};});
+    } else {
+      if(isFT)setPDrafts(p=>({...p,[activePid]:{...pDraft,ftShots:[...(pDraft.ftShots||[]),shot]}}));
+      else setPDrafts(p=>({...p,[activePid]:{...pDraft,shots:[...(pDraft.shots||[]),{...shot,type:shotType(x,y)}]}}));
+    }
+    const shotLbl=isFT?'Free Throw':shotType(x,y);
+    const shotPts=make?(isFT?1:shotType(x,y)==='3-Pointer'?3:2):0;
+    const logEntry={id:Date.now(),q:isGame?gs.q:1,team:'home',player:player?.number||'?',action:(make?'Made ':'Missed ')+shotLbl,pts:shotPts,ts:new Date().toISOString()};
+    if(isGame)setGs(g=>({...g,playLog:[...(g.playLog||[]),logEntry]}));
+    setNotice({label:(make?'✓ Make':'✗ Miss')+(isFT?' · Free Throw ◆':' · '+shotType(x,y)),make});
+    vib(50);setMode(null);clearTimeout(ntR.current);ntR.current=setTimeout(()=>setNotice(null),2000);
+  },[activePid,mode,isGame,pDraft,gs]);
+
+  const handleStat=(key,delta)=>{
+    if(!activePid||!isGame)return;
+    if(delta>0){
+      const statLbl=GSTATS.find(s=>s.key===key)?.label||key;
+      const entry={id:Date.now(),q:gs.q,team:'home',player:player?.number||'?',action:statLbl,pts:0,ts:new Date().toISOString()};
+      setGs(g=>{const newQs=g.pdata[activePid].qs.map((q,i)=>i===g.q-1?{...q,[key]:Math.max(0,(q[key]||0)+delta)}:q);return{...g,pdata:{...g.pdata,[activePid]:{...g.pdata[activePid],qs:newQs}},playLog:[...(g.playLog||[]),entry]};});
+    } else {
+      setGs(g=>{const newQs=g.pdata[activePid].qs.map((q,i)=>i===g.q-1?{...q,[key]:Math.max(0,(q[key]||0)+delta)}:q);return{...g,pdata:{...g.pdata,[activePid]:{...g.pdata[activePid],qs:newQs}}};});
+    }
+  };
+
+  const handleOppStat=(q,key,delta)=>{
+    setGs(g=>{const newQs=(g.oppQs||[]).map((qd,i)=>{
+      if(i!==q-1)return qd;
+      if(key==='fg2miss'){const newMiss=Math.max(0,(qd.fg2a||0)-(qd.fg2m||0)+delta);return{...qd,fg2a:(qd.fg2m||0)+newMiss};}
+      if(key==='fg3miss'){const newMiss=Math.max(0,(qd.fg3a||0)-(qd.fg3m||0)+delta);return{...qd,fg3a:(qd.fg3m||0)+newMiss};}
+      if(key==='ftmiss'){const newMiss=Math.max(0,(qd.fta||0)-(qd.ftm||0)+delta);return{...qd,fta:(qd.ftm||0)+newMiss};}
+      return{...qd,[key]:Math.max(0,(qd[key]||0)+delta)};
+    });return{...g,oppQs:newQs};});
+  };
+
+  const handleOppShot=(shotKey)=>{
+    if(!mode)return;
+    const make=mode==='make',q=gs.q;
+    const label=shotKey==='fg2'?'2PT':shotKey==='fg3'?'3PT':'FT';
+    const pts=make?(shotKey==='fg2'?2:shotKey==='fg3'?3:1):0;
+    const entry={id:Date.now(),q,team:'opp',player:'Opponent',action:(make?'Made ':'Missed ')+label,pts,ts:new Date().toISOString()};
+    setGs(g=>{
+      const newQs=(g.oppQs||[]).map((qd,i)=>{
+        if(i!==q-1)return qd;
+        if(shotKey==='fg2')return{...qd,fg2m:make?(qd.fg2m||0)+1:qd.fg2m||0,fg2a:(qd.fg2a||0)+1};
+        if(shotKey==='fg3')return{...qd,fg3m:make?(qd.fg3m||0)+1:qd.fg3m||0,fg3a:(qd.fg3a||0)+1};
+        if(shotKey==='ft')return{...qd,ftm:make?(qd.ftm||0)+1:qd.ftm||0,fta:(qd.fta||0)+1};
+        return qd;
+      });
+      return{...g,oppQs:newQs,playLog:[...(g.playLog||[]),entry]};
+    });
+    vib(50);setMode(null);
+    clearTimeout(ntR.current);setNotice({label:(make?'✓ Opp Make':'✗ Opp Miss')+' · '+label,make});ntR.current=setTimeout(()=>setNotice(null),2000);
+  };
+
+  const handleUndo=()=>{
+    if(isGame){setGs(g=>{const newQs=g.pdata[activePid].qs.map((q,i)=>{if(i!==g.q-1)return q;const sh=q.shots||[],ft=q.ftShots||[];const lG=sh.length>0?sh[sh.length-1].id:-1,lF=ft.length>0?ft[ft.length-1].id:-1;if(lF>lG)return{...q,ftShots:ft.slice(0,-1)};if(lG>-1)return{...q,shots:sh.slice(0,-1)};return q;});const newLog=(g.playLog||[]).slice(0,-1);return{...g,pdata:{...g.pdata,[activePid]:{...g.pdata[activePid],qs:newQs}},playLog:newLog}});)}
+    else{const d=pDraft,sh=d.shots||[],ft=d.ftShots||[];const lG=sh.length>0?sh[sh.length-1].id:-1,lF=ft.length>0?ft[ft.length-1].id:-1;if(lF>lG)setPDrafts(p=>({...p,[activePid]:{...d,ftShots:ft.slice(0,-1)}}));else if(lG>-1)setPDrafts(p=>({...p,[activePid]:{...d,shots:sh.slice(0,-1)}}));}
+  };
+
+  const handleSave=({label})=>{
+    const date=todayStr(),ns=[...sessions];
+    if(isGame){
+      const fMy=calcMyScore(gs),fOpp=calcOppScore(gs);
+      const finalStints={};
+      Object.entries(gs.stints||{}).forEach(([pid,stints])=>{finalStints[pid]=(stints||[]).map(s=>s.e_my===undefined?{...s,e_my:fMy,e_opp:fOpp}:s);});
+      const oppTotal=(gs.oppQs||[]).reduce((a,q)=>({fg2m:a.fg2m+(q.fg2m||0),fg2a:a.fg2a+(q.fg2a||0),fg3m:a.fg3m+(q.fg3m||0),fg3a:a.fg3a+(q.fg3a||0),oReb:a.oReb+(q.oReb||0),dReb:a.dReb+(q.dReb||0),to:a.to+(q.to||0),foul:a.foul+(q.foul||0)}),EMPTY_OPP());
+      const oppData={quarters:(gs.oppQs||[]).map(q=>({...q})),total:oppTotal};
+      const savedPlayLog=gs.playLog||[];
+      players.filter(p=>gs.pdata[p.id]?.active!==false).forEach(p=>{
+        const pd=gs.pdata[p.id];if(!pd||!hasDraftQ(pd.qs))return;
+        const allSh=pd.qs.flatMap(q=>q.shots||[]),allFT=pd.qs.flatMap(q=>q.ftShots||[]);
+        const totStats=GSTATS.reduce((a,{key})=>({...a,[key]:pd.qs.reduce((s,q)=>s+(q[key]||0),0)}),{});
+        const pm=calcPlusMinus(finalStints[p.id]||[],fMy,fOpp);
+        ns.unshift({id:Date.now().toString()+'-'+p.id,date,label,sessionType:'Game',opponent,playerId:p.id,playerNumber:p.number,shots:allSh,ftShots:allFT,...totStats,gameScore:{my:fMy,opp:fOpp},plusMinus:pm,quarterData:pd.qs,opponentData:oppData,playLog:savedPlayLog,savedAt:new Date().toISOString()});
+      });
+    } else {
+      players.filter(p=>p.active!==false).forEach(p=>{
+        const d=pDrafts[p.id]||{shots:[],ftShots:[]};if(!(d.shots||[]).length&&!(d.ftShots||[]).length)return;
+        ns.unshift({id:Date.now().toString()+'-'+p.id,date,label,sessionType:'Practice',opponent:'',playerId:p.id,playerNumber:p.number,shots:d.shots||[],ftShots:d.ftShots||[],...GSTATS.reduce((a,{key})=>({...a,[key]:0}),{}),savedAt:new Date().toISOString()});
+      });
+    }
+    setSessions(ns);setPDrafts({});if(isGame)setGs(initGS());setSaving(false);setView('history');persist(players,ns);
+    clearTimeout(ntR.current);setNotice({label:'✓ Session saved!',make:true});ntR.current=setTimeout(()=>setNotice(null),2500);
+  };
+
+  const handleAddPlayer=()=>{if(!newNum.trim()||players.length>=12)return;const i=players.length,np={id:uid(),number:newNum.trim().slice(0,10),color:PAL[i%PAL.length],active:true};const npl=[...players,np];setPlayers(npl);setActivePid(np.id);setAddOpen(false);setNewNum('');if(isGame)setGs(g=>({...g,pdata:{...g.pdata,[np.id]:{active:true,qs:[EMPTY_QSTAT(),EMPTY_QSTAT(),EMPTY_QSTAT(),EMPTY_QSTAT()]}}}));persist(npl,sessions);};
+  const handleEditSave=()=>{if(!editNum.trim())return;const npl=players.map(pl=>pl.id===editPid?{...pl,number:editNum.trim().slice(0,10)}:pl);setPlayers(npl);setEditPid(null);setEditNum('');setConfDelP(false);persist(npl,sessions);};
+  const handleRemovePlayer=()=>{const npl=players.filter(p=>p.id!==editPid),ns=sessions.filter(s=>s.playerId!==editPid);setPlayers(npl);setSessions(ns);setPDrafts(p=>{const n={...p};delete n[editPid];return n;});setActivePid(npl.length>0?npl[0].id:null);setEditPid(null);setEditNum('');setConfDelP(false);persist(npl,ns);};
+  const dMk=dSh.filter(s=>s.make).length,dPct=dSh.length?Math.round(dMk/dSh.length*100):null,dPts=calcPts(dSh,dFT);
+
+  const ChipGrid=()=>(<div style={{display:'flex',flexDirection:'column',gap:5}}>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:5}}>
+      {players.map((p,i)=>{const isA=activePid===p.id,col=pc(p,i),benched=!isChipActive(p);return(
+        <div key={p.id} onPointerDown={chipDown(p)} onPointerUp={chipUp(p)} onPointerLeave={chipCancel} onPointerCancel={chipCancel}
+          style={{height:42,borderRadius:10,padding:'0 4px',border:isA?'2px solid '+col:'1px solid '+T.border,background:isA?col+'22':T.card,color:isA?col:T.t2,fontSize:p.number.length>6?10:p.number.length>3?13:16,fontWeight:800,cursor:'pointer',boxShadow:isA?'0 0 0 3px '+col+'33':T.shadow,transition:'all 0.15s',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',opacity:benched?0.3:1,userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',position:'relative'}}>
+          {p.number.length>2?p.number:'#'+p.number}
+          {benched&&<div style={{position:'absolute',bottom:1,right:2,fontSize:6,color:T.t4,lineHeight:1,fontWeight:700}}>BENCH</div>}
+        </div>
+      );})}
+      {players.length<12&&<button onClick={()=>{setAddOpen(true);setNewNum('');}} style={{height:42,borderRadius:10,border:'1px dashed '+T.border,background:'transparent',color:T.t4,fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>}
+    </div>
+    <div style={{fontSize:9,color:T.t4,textAlign:'center',letterSpacing:1}}>Tap to select · Long-press to bench/activate</div>
+  </div>);
+
+  const CourtSection=()=>(<>
+    <div style={{minHeight:24,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      {mode?<div style={{background:mode==='make'?T.green:T.red,color:'#fff',padding:'4px 20px',borderRadius:20,fontSize:11,fontWeight:700,letterSpacing:2,textTransform:'uppercase',animation:'pulse 1s ease-in-out infinite'}}>↓ Tap court — {mode==='make'?'MAKE ✓':'MISS ✗'}</div>
+      :notice?<div style={{color:notice.make?T.green:T.red,fontSize:11,letterSpacing:2,fontWeight:700,textTransform:'uppercase'}}>{notice.label}</div>
+      :<div style={{fontSize:10,color:T.t4,letterSpacing:1}}>Select Make or Miss, then tap the court</div>}
+    </div>
+    {sessions.filter(s=>s.playerId===activePid).length>0&&<div style={{display:'flex',justifyContent:'flex-end'}}><button onClick={()=>setShowHeat(h=>!h)} style={{padding:'5px 12px',borderRadius:20,border:'1px solid '+(showHeat?'#d97706':T.border),background:showHeat?'#fef3c7':T.card,color:showHeat?'#d97706':T.t3,fontSize:10,letterSpacing:1,cursor:'pointer',fontWeight:showHeat?700:400}}>🔥 Season Heat</button></div>}
+    <Court shots={dSh} ftShots={dFT} mode={mode} onShot={handleShot} pCol={pC} showHeat={showHeat} heatData={hd()} activeLbl={player?.number}/>
+    <div style={{display:'flex',gap:10,flexWrap:'wrap',justifyContent:'center'}}>
+      {TYPES.map(t=><div key={t} style={{display:'flex',alignItems:'center',gap:3,fontSize:9,color:T.t3,letterSpacing:1}}><div style={{width:6,height:6,borderRadius:'50%',background:ZCOL[t]}}/>{t.toUpperCase()}</div>)}
+      <div style={{display:'flex',alignItems:'center',gap:3,fontSize:9,color:'#d97706',letterSpacing:1}}><div style={{width:6,height:6,background:'#d97706',transform:'rotate(45deg)'}}/>FT</div>
+      <div style={{display:'flex',alignItems:'center',gap:6,fontSize:9,color:T.t4}}>
+        <span style={{display:'flex',alignItems:'center',gap:2}}><div style={{width:7,height:7,borderRadius:'50%',background:pC}}/> Make</span>
+        <span style={{display:'flex',alignItems:'center',gap:2}}><div style={{width:7,height:7,borderRadius:'50%',border:'2px solid '+pC,background:'transparent'}}/> Miss</span>
+      </div>
+    </div>
+  </>);
+
+  const ControlsSection=()=>(<>
+    {/* Home team stat chips — above Make/Miss */}
+    {isGame&&<div style={{background:T.card,borderRadius:12,border:'1px solid '+T.border,boxShadow:T.shadow,padding:'10px 12px'}}>
+      <div style={{fontSize:9,color:T.t3,fontWeight:700,letterSpacing:2,textTransform:'uppercase',marginBottom:8}}>#{player?.number} Stats — Q{gs.q}</div>
+      <GameStatBar stats={gqd} onChange={handleStat}/>
+    </div>}
+    {/* Make / Miss — shared button between home stats and opponent panel */}
+    <div style={{display:'flex',gap:10}}>
+      <button onClick={()=>setMode(m=>m==='make'?null:'make')} style={{flex:1,padding:'14px 0',borderRadius:12,border:mode==='make'?'none':'2px solid '+T.green,background:mode==='make'?T.green:T.card,color:mode==='make'?'#fff':T.green,fontSize:15,fontWeight:800,letterSpacing:2,cursor:'pointer',boxShadow:mode==='make'?'0 4px 16px rgba(22,163,74,0.3)':T.shadow,transition:'all 0.15s',textTransform:'uppercase'}}>✓ Make</button>
+      <button onClick={()=>setMode(m=>m==='miss'?null:'miss')} style={{flex:1,padding:'14px 0',borderRadius:12,border:mode==='miss'?'none':'2px solid '+T.red,background:mode==='miss'?T.red:T.card,color:mode==='miss'?'#fff':T.red,fontSize:15,fontWeight:800,letterSpacing:2,cursor:'pointer',boxShadow:mode==='miss'?'0 4px 16px rgba(220,38,38,0.3)':T.shadow,transition:'all 0.15s',textTransform:'uppercase'}}>✗ Miss</button>
+    </div>
+    {/* Opponent panel — below Make/Miss, shot chips respond to mode */}
+    {isGame&&<OppPanel qData={gs.oppQs||[EMPTY_OPP(),EMPTY_OPP(),EMPTY_OPP(),EMPTY_OPP()]} q={gs.q} onChange={handleOppStat} mode={mode} onOppShot={handleOppShot}/>}
+    {!confClear?(<div style={{display:'flex',gap:8}}>
+      <button onClick={handleUndo} style={{flex:1,padding:'10px 0',borderRadius:10,border:'1px solid '+T.border,background:T.card,color:T.t2,fontSize:12,letterSpacing:1,cursor:'pointer',fontWeight:600,boxShadow:T.shadow}}>↩ Undo</button>
+      <button onClick={()=>curHasData&&setConfClear(true)} disabled={!curHasData} style={{flex:1,padding:'10px 0',borderRadius:10,border:'1px solid '+(curHasData?T.border:T.border),background:T.card,color:curHasData?T.red:T.t4,fontSize:12,letterSpacing:1,cursor:curHasData?'pointer':'default',fontWeight:600,boxShadow:T.shadow}}>🗑 Clear Player</button>
+    </div>):(<div style={{background:'#fef2f2',borderRadius:12,padding:'12px 16px',border:'1px solid #fecaca',display:'flex',flexDirection:'column',gap:8}}>
+      <div style={{fontSize:11,color:T.red,fontWeight:700,textAlign:'center'}}>Clear {isGame?'Q'+gs.q+' data':'shots'} for #{player?.number}?</div>
+      <div style={{display:'flex',gap:8}}>
+        <button onClick={()=>setConfClear(false)} style={{flex:1,padding:'10px 0',borderRadius:10,border:'1px solid '+T.border,background:T.card,color:T.t2,fontSize:12,cursor:'pointer'}}>Cancel</button>
+        <button onClick={()=>{if(isGame)setGs(g=>{const newQs=g.pdata[activePid].qs.map((q,i)=>i===g.q-1?EMPTY_QSTAT():q);return{...g,pdata:{...g.pdata,[activePid]:{...g.pdata[activePid],qs:newQs}}};});else setPDrafts(p=>({...p,[activePid]:{shots:[],ftShots:[]}}));setConfClear(false);}} style={{flex:1,padding:'10px 0',borderRadius:10,border:'none',background:T.red,color:'#fff',fontSize:12,cursor:'pointer',fontWeight:700}}>Clear</button>
+      </div>
+    </div>)}
+    <button onClick={()=>anyData&&setSaving(true)} disabled={!anyData} style={{width:'100%',padding:'16px 0',borderRadius:14,border:'none',background:anyData?T.accent:'#e5e7eb',color:anyData?'#fff':T.t4,fontSize:14,fontWeight:900,letterSpacing:4,cursor:anyData?'pointer':'default',textTransform:'uppercase',boxShadow:anyData?'0 4px 20px rgba(255,107,53,0.3)':'none',transition:'all 0.2s'}}>💾 Save Session</button>
+  </>);
+
+  const DraftBar=()=>(<div style={{background:T.card,borderRadius:10,border:'1px solid '+T.border,padding:'7px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',boxShadow:T.shadow}}>
+    <div style={{fontSize:9,color:T.t4,fontWeight:700,letterSpacing:2,textTransform:'uppercase'}}>{isGame?'Q'+gs.q+' data':''} #{player?.number||'—'}</div>
+    <div style={{display:'flex',gap:10,alignItems:'center',fontSize:11,color:T.t3}}>
+      {dSh.length>0&&<span style={{fontWeight:600,color:T.t2}}>{dSh.length} FG</span>}
+      {dFT.length>0&&<span style={{fontWeight:600,color:T.t2}}>· {dFT.length} FT</span>}
+      {dPct!==null&&<span style={{fontWeight:800,color:dPct>=50?T.green:T.red}}>{dPct}%</span>}
+      {dPts>0&&<span style={{fontWeight:800,color:'#d97706'}}>⭐{dPts}pts</span>}
+    </div>
+  </div>);
+
+  return(<div style={{minHeight:'100vh',background:T.bg,display:'flex',flexDirection:'column',alignItems:'center',padding:isLandscape?'8px 10px 16px':'12px 12px 40px',maxWidth:isLandscape?'100%':520,margin:'0 auto',width:'100%'}}>
+    <div style={{textAlign:'center',paddingBottom:isLandscape?6:10,width:'100%',position:'relative'}}>
+      <button onClick={onBack} style={{position:'absolute',left:0,top:4,background:'none',border:'none',color:T.accent,cursor:'pointer',fontSize:12,fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>← Back</button>
+      <div style={{fontSize:9,letterSpacing:4,color:T.accent,textTransform:'uppercase',fontWeight:700,marginBottom:1}}>🏀 {teamMeta.name}</div>
+      <div style={{fontSize:isLandscape?16:20,fontWeight:900,color:T.t1,letterSpacing:3,textTransform:'uppercase',lineHeight:1}}>{isGame?'🏆 Game':'🏋️ Practice'}{isGame&&opponent?<span style={{fontSize:12,color:T.t3,fontWeight:400,marginLeft:8}}>vs {opponent}</span>:null}</div>
+    </div>
+    <div style={{width:'100%',display:'flex',gap:8,alignItems:'center',marginBottom:isLandscape?6:10}}>
+      <div style={{display:'flex',background:T.card,borderRadius:12,border:'1px solid '+T.border,overflow:'hidden',flex:1,boxShadow:T.shadow}}>
+        {(isGame?[['today','🏆 Game'],['log','📋 Log'],['history','📅 History']]:[['today','🏋️ Practice'],['history','📅 History']]).map(([key,lbl])=>(
+          <button key={key} onClick={()=>setView(key)} style={{flex:1,padding:'10px 0',border:'none',cursor:'pointer',background:view===key?T.accent:'transparent',color:view===key?'#fff':T.t3,fontSize:10,letterSpacing:1,textTransform:'uppercase',fontWeight:700,transition:'all 0.2s',whiteSpace:'nowrap'}}>
+            {lbl}{key==='history'&&sessions.length>0&&<span style={{marginLeft:4,background:view==='history'?'rgba(255,255,255,0.3)':T.accent,color:'#fff',borderRadius:10,fontSize:8,padding:'1px 5px',fontWeight:900}}>{sessions.length}</span>}
+            {key==='log'&&(gs.playLog||[]).length>0&&<span style={{marginLeft:4,background:view==='log'?'rgba(255,255,255,0.3)':T.accent,color:'#fff',borderRadius:10,fontSize:8,padding:'1px 5px',fontWeight:900}}>{(gs.playLog||[]).length}</span>}
+          </button>
+        ))}
+      </div>
+      {view==='today'&&<div style={{background:T.card,border:'2px solid '+pC,borderRadius:10,padding:'5px 10px',fontSize:11,color:pC,fontWeight:700,flexShrink:0,display:'flex',alignItems:'center',gap:5,boxShadow:T.shadow}}><div style={{width:7,height:7,borderRadius:'50%',background:pC,flexShrink:0}}/>#{player?.number||'—'}</div>}
+    </div>
+    {view==='today'&&(isLandscape?(
+      <div style={{width:'100%',display:'flex',gap:12,alignItems:'flex-start'}}>
+        <div style={{flex:'0 0 56%',display:'flex',flexDirection:'column',gap:8}}>
+          {isGame&&<ScoreBoard myName={teamMeta.name} oppName={opponent} myScore={myScore} oppScore={oppScore} quarter={gs.q} onSetQ={q=>setGs(g=>({...g,q}))} onEditScore={()=>setScoreEditOpen(true)}/>}
+          <ChipGrid/>
+          <DraftBar/>
+          <CourtSection/>
+        </div>
+        <div style={{flex:'0 0 calc(44% - 12px)',display:'flex',flexDirection:'column',gap:10,maxHeight:'calc(100vh - 120px)',overflowY:'auto',paddingRight:2}}>
+          <ControlsSection/>
+        </div>
+      </div>
+    ):(
+      <div style={{width:'100%',display:'flex',flexDirection:'column',gap:10}}>
+        {isGame&&<ScoreBoard myName={teamMeta.name} oppName={opponent} myScore={myScore} oppScore={oppScore} quarter={gs.q} onSetQ={q=>setGs(g=>({...g,q}))} onEditScore={()=>setScoreEditOpen(true)}/>}
+        <ChipGrid/>
+        <DraftBar/>
+        <CourtSection/>
+        <ControlsSection/>
+      </div>
+    ))}
+    {view==='history'&&<HistoryView teamMeta={teamMeta} players={players} sessions={sessions} onDelSession={id=>{const ns=sessions.filter(s=>s.id!==id);setSessions(ns);persist(players,ns);}}/>}
+    {view==='log'&&isGame&&<PlayLogView log={gs.playLog||[]} players={players} teamName={teamMeta.name} oppName={opponent}/>}
+    {scoreEditOpen&&<ScoreEditModal myName={teamMeta.name} oppName={opponent} myScore={myScore} oppScore={oppScore} onAdj={(key,delta)=>setGs(g=>({...g,[key==='my'?'myAdj':'oppAdj']:(g[key==='my'?'myAdj':'oppAdj']||0)+delta}))} onClose={()=>setScoreEditOpen(false)}/>}
+    {saving&&<SaveModal sessionType={sessionType} players={players} draftPlayers={players.map(p=>({...p,hasData:isGame?(gs.pdata[p.id]&&hasDraftQ(gs.pdata[p.id].qs)):((pDrafts[p.id]?.shots||[]).length>0||(pDrafts[p.id]?.ftShots||[]).length>0)}))} myScore={myScore} oppScore={oppScore} opponent={opponent} onSave={handleSave} onCancel={()=>setSaving(false)}/>}
+    {editPid&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:999,padding:20}}><div style={{background:T.card,borderRadius:20,padding:24,width:'100%',maxWidth:360,boxShadow:T.shadowMd,display:'flex',flexDirection:'column',gap:14,animation:'popin 0.15s ease'}}>
+      {!confDelP?(<>
+        <div style={{fontSize:14,fontWeight:900,color:T.t1,textAlign:'center',letterSpacing:2,textTransform:'uppercase'}}>Edit Player</div>
+        <input value={editNum} onChange={e=>setEditNum(e.target.value)} maxLength={10} style={{width:'100%',boxSizing:'border-box',background:T.bg,border:'1px solid '+T.border,borderRadius:10,padding:'14px',color:T.t1,fontSize:20,fontWeight:700,textAlign:'center',outline:'none'}}/>
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={()=>{setEditPid(null);setEditNum('');setConfDelP(false);}} style={{flex:1,padding:'12px 0',borderRadius:10,border:'1px solid '+T.border,background:T.card,color:T.t2,fontSize:13,cursor:'pointer'}}>Cancel</button>
+          <button onClick={handleEditSave} disabled={!editNum.trim()} style={{flex:2,padding:'12px 0',borderRadius:10,border:'none',background:T.accent,color:'#fff',fontSize:14,fontWeight:700,cursor:'pointer',letterSpacing:2,textTransform:'uppercase'}}>Save</button>
+        </div>
+        {players.length>1&&<button onClick={()=>setConfDelP(true)} style={{padding:'10px 0',borderRadius:10,border:'1px solid #fecaca',background:'#fef2f2',color:T.red,fontSize:11,letterSpacing:2,cursor:'pointer',textTransform:'uppercase',fontWeight:700}}>Remove #{players.find(p=>p.id===editPid)?.number}</button>}
+      </>):(<>
+        <div style={{fontSize:13,fontWeight:700,color:T.red,textAlign:'center'}}>Remove #{players.find(p=>p.id===editPid)?.number}?</div>
+        <div style={{fontSize:11,color:T.t3,textAlign:'center',lineHeight:1.6}}>All sessions for this player will be permanently deleted.</div>
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={()=>setConfDelP(false)} style={{flex:1,padding:'12px 0',borderRadius:10,border:'1px solid '+T.border,background:T.card,color:T.t2,fontSize:13,cursor:'pointer'}}>Cancel</button>
+          <button onClick={handleRemovePlayer} style={{flex:1,padding:'12px 0',borderRadius:10,border:'none',background:T.red,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}>Remove</button>
+        </div>
+      </>)}
+    </div></div>}
+    {addOpen&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:999,padding:20}}><div style={{background:T.card,borderRadius:20,padding:24,width:'100%',maxWidth:360,boxShadow:T.shadowMd,display:'flex',flexDirection:'column',gap:14,animation:'popin 0.15s ease'}}>
+      <div style={{fontSize:14,fontWeight:900,color:T.t1,textAlign:'center',letterSpacing:2,textTransform:'uppercase'}}>Add Player</div>
+      <div style={{display:'flex',justifyContent:'center'}}><div style={{width:44,height:44,borderRadius:'50%',background:PAL[players.length%PAL.length],boxShadow:'0 0 16px '+PAL[players.length%PAL.length]+'66'}}/></div>
+      <input value={newNum} onChange={e=>setNewNum(e.target.value)} maxLength={10} placeholder="e.g. 23 James" autoFocus onKeyDown={e=>e.key==='Enter'&&handleAddPlayer()} style={{width:'100%',boxSizing:'border-box',background:T.bg,border:'1px solid '+T.border,borderRadius:10,padding:'14px',color:T.t1,fontSize:20,fontWeight:700,textAlign:'center',outline:'none'}}/>
+      <div style={{display:'flex',gap:10}}>
+        <button onClick={()=>{setAddOpen(false);setNewNum('');}} style={{flex:1,padding:'12px 0',borderRadius:10,border:'1px solid '+T.border,background:T.card,color:T.t2,fontSize:13,cursor:'pointer'}}>Cancel</button>
+        <button onClick={handleAddPlayer} disabled={!newNum.trim()} style={{flex:2,padding:'12px 0',borderRadius:10,border:'none',background:newNum.trim()?T.accent:'#e5e7eb',color:newNum.trim()?'#fff':T.t4,fontSize:14,fontWeight:700,cursor:newNum.trim()?'pointer':'default',letterSpacing:2,textTransform:'uppercase'}}>Add</button>
+      </div>
+    </div></div>}
+  </div>);
+}
+
+// ── Team Selector ─────────────────────────────────────────────────────────────
+function TeamSelector({teams,onSelect,onCreate,onEdit,onDelete,onImport}){
+  const [cr,setCr]=useState(false),[nm,setNm]=useState(''),[et,setEt]=useState(null),[en,setEn]=useState(''),[cd,setCd]=useState(false);
+  const [importMsg,setImportMsg]=useState(null);
+  const fileRef=useRef(null);
+  const TC=['#dc2626','#2563eb','#16a34a','#7c3aed','#d97706','#0891b2','#9d174d','#374151'];
+  const tc=id=>TC[parseInt(id.slice(-2),36)%TC.length];
+  const handleExport=()=>{const keys=Object.keys(localStorage).filter(k=>k.startsWith('bball-'));const data={exportedAt:new Date().toISOString(),version:'v6',mergedTeams:teams,keys:{}};keys.forEach(k=>{try{data.keys[k]=JSON.parse(localStorage.getItem(k));}catch{}});const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='shottracker-backup-'+new Date().toISOString().slice(0,10)+'.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);};
+  const handleImportFile=(e)=>{const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=(ev)=>{try{const data=JSON.parse(ev.target.result);if(!data.keys)throw new Error('Invalid');Object.entries(data.keys).forEach(([k,v])=>{let nk=k;if(/^bball-teams/.test(k)&&!/^bball-team-/.test(k))nk='bball-teams-v6';const m=k.match(/^bball-team-(?:v\d+-)?(.+)$/);if(m&&k.includes('-team-')&&!k.includes('teams'))nk='bball-team-v6-'+m[1];if(v&&v.sessions)v.sessions=v.sessions.map(s=>({foul:0,...s}));lsSet(nk,v);});const mt=data.mergedTeams||lsGet('bball-teams-v6')||[];if(mt.length>0)lsSet('bball-teams-v6',mt);const nt=lsGet('bball-teams-v6')||[];onImport(nt);setImportMsg('✓ Imported '+nt.length+' team(s)!');setTimeout(()=>setImportMsg(null),4000);}catch{setImportMsg('✗ Import failed — invalid file');setTimeout(()=>setImportMsg(null),4000);}};reader.readAsText(file);e.target.value='';};
+  return(<div style={{minHeight:'100vh',background:T.bg,display:'flex',flexDirection:'column',alignItems:'center',padding:'0 0 40px',maxWidth:520,margin:'0 auto'}}>
+    <div style={{width:'100%',background:T.card,borderBottom:'1px solid '+T.border,padding:'44px 20px 24px',textAlign:'center',boxShadow:T.shadow}}>
+      <div style={{fontSize:52,marginBottom:8}}>🏀</div>
+      <h1 style={{margin:'0 0 4px',fontSize:26,letterSpacing:4,color:T.t1,textTransform:'uppercase',fontWeight:900}}>Shot Tracker</h1>
+      <div style={{fontSize:11,color:T.accent,letterSpacing:3,textTransform:'uppercase',fontWeight:700}}>v3.0 · Practice & Game</div>
+    </div>
+    <div style={{width:'100%',padding:'16px 14px 0',display:'flex',flexDirection:'column',gap:10}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div style={{fontSize:10,letterSpacing:2,color:T.t4,textTransform:'uppercase',fontWeight:700}}>{teams.length>0?teams.length+' Team'+(teams.length!==1?'s':''):''}</div>
+        <button onClick={()=>{setCr(true);setNm('');}} style={{padding:'8px 16px',borderRadius:20,border:'none',background:T.accent,color:'#fff',fontSize:11,fontWeight:700,letterSpacing:2,cursor:'pointer',textTransform:'uppercase',boxShadow:'0 2px 8px rgba(255,107,53,0.3)'}}>＋ New Team</button>
+      </div>
+      <div style={{display:'flex',gap:8}}>
+        <button onClick={handleExport} style={{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid '+T.border,background:T.card,color:'#7c3aed',fontSize:11,letterSpacing:1,cursor:'pointer',fontWeight:700,boxShadow:T.shadow}}>📤 Export Backup</button>
+        <button onClick={()=>fileRef.current&&fileRef.current.click()} style={{flex:1,padding:'9px 0',borderRadius:10,border:'1px solid '+T.border,background:T.card,color:T.blue,fontSize:11,letterSpacing:1,cursor:'pointer',fontWeight:700,boxShadow:T.shadow}}>📥 Import Backup</button>
+        <input ref={fileRef} type="file" accept=".json" onChange={handleImportFile} style={{display:'none'}}/>
+      </div>
+      {importMsg&&<div style={{padding:'10px 14px',borderRadius:10,background:importMsg.startsWith('✓')?T.greenL:T.redL,border:'1px solid '+(importMsg.startsWith('✓')?'#86efac':'#fca5a5'),fontSize:12,color:importMsg.startsWith('✓')?T.green:T.red,textAlign:'center',fontWeight:700}}>{importMsg}</div>}
+      {teams.length===0&&!cr&&<div style={{textAlign:'center',padding:'60px 20px',display:'flex',flexDirection:'column',alignItems:'center',gap:16}}>
+        <div style={{fontSize:40}}>📋</div>
+        <div style={{fontSize:14,color:T.t4,letterSpacing:2,textTransform:'uppercase',fontWeight:700}}>No Teams Yet</div>
+        <button onClick={()=>{setCr(true);setNm('');}} style={{padding:'16px 32px',borderRadius:14,border:'none',background:T.accent,color:'#fff',fontSize:14,fontWeight:900,letterSpacing:4,cursor:'pointer',textTransform:'uppercase',boxShadow:'0 4px 20px rgba(255,107,53,0.35)'}}>🏀 Create First Team</button>
+      </div>}
+      {teams.map(t=>{const col=tc(t.id);return(<div key={t.id} style={{background:T.card,borderRadius:14,border:'1px solid '+T.border,overflow:'hidden',boxShadow:T.shadow}}>
+        <div style={{height:4,background:'linear-gradient(90deg,'+col+','+col+'88)'}}/>
+        <div style={{padding:'16px',display:'flex',alignItems:'center',gap:14}}>
+          <div style={{width:48,height:48,borderRadius:12,background:col+'18',border:'2px solid '+col+'44',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>🏀</div>
+          <div style={{flex:1,minWidth:0,cursor:'pointer'}} onClick={()=>onSelect(t)}>
+            <div style={{fontSize:16,fontWeight:900,color:T.t1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.name}</div>
+            <div style={{fontSize:10,color:T.t4,marginTop:3}}>Created {fmtDate(t.createdAt.slice(0,10))}</div>
+            <div style={{display:'flex',gap:10,marginTop:5,flexWrap:'wrap'}}>
+              {t.playerCount>0&&<span style={{fontSize:9,color:col,fontWeight:700}}>👤 {t.playerCount} players</span>}
+              {t.sessionCount>0&&<span style={{fontSize:9,color:T.green,fontWeight:700}}>📊 {t.sessionCount} sessions</span>}
+              {t.totalPoints>0&&<span style={{fontSize:9,color:'#d97706',fontWeight:700}}>⭐ {t.totalPoints} pts</span>}
+            </div>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:6,flexShrink:0}}>
+            <button onClick={()=>onSelect(t)} style={{width:38,height:38,borderRadius:10,border:'none',background:col,color:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 2px 8px '+col+'44'}}>▶</button>
+            <button onClick={()=>{setEt(t);setEn(t.name);setCd(false);}} style={{width:38,height:38,borderRadius:10,border:'1px solid '+T.border,background:T.card,color:T.t3,fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✏️</button>
+          </div>
+        </div>
+      </div>);})}
+    </div>
+    {cr&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:999,padding:20}}><div style={{background:T.card,borderRadius:20,padding:24,width:'100%',maxWidth:380,boxShadow:T.shadowMd,display:'flex',flexDirection:'column',gap:16,animation:'popin 0.15s ease'}}>
+      <div style={{fontSize:14,fontWeight:900,color:T.t1,textAlign:'center',letterSpacing:2,textTransform:'uppercase'}}>Create New Team</div>
+      <input value={nm} onChange={e=>setNm(e.target.value)} placeholder="e.g. Varsity Eagles…" maxLength={30} autoFocus onKeyDown={e=>{if(e.key==='Enter'&&nm.trim()){onCreate(nm.trim());setCr(false);setNm('');}}} style={{width:'100%',boxSizing:'border-box',background:T.bg,border:'1px solid '+T.border,borderRadius:12,padding:'14px',color:T.t1,fontSize:18,fontWeight:700,outline:'none',textAlign:'center'}}/>
+      <div style={{display:'flex',gap:10}}>
+        <button onClick={()=>{setCr(false);setNm('');}} style={{flex:1,padding:'13px 0',borderRadius:12,border:'1px solid '+T.border,background:T.card,color:T.t2,fontSize:13,cursor:'pointer'}}>Cancel</button>
+        <button onClick={()=>{if(nm.trim()){onCreate(nm.trim());setCr(false);setNm('');}}} disabled={!nm.trim()} style={{flex:2,padding:'13px 0',borderRadius:12,border:'none',background:nm.trim()?T.accent:'#e5e7eb',color:nm.trim()?'#fff':T.t4,fontSize:14,fontWeight:700,cursor:nm.trim()?'pointer':'default',letterSpacing:2,textTransform:'uppercase'}}>🏀 Create</button>
+      </div>
+    </div></div>}
+    {et&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:999,padding:20}}><div style={{background:T.card,borderRadius:20,padding:24,width:'100%',maxWidth:380,boxShadow:T.shadowMd,display:'flex',flexDirection:'column',gap:14,animation:'popin 0.15s ease'}}>
+      {!cd?(<>
+        <div style={{fontSize:14,fontWeight:900,color:T.t1,textAlign:'center',letterSpacing:2,textTransform:'uppercase'}}>Edit Team</div>
+        <input value={en} onChange={e=>setEn(e.target.value)} maxLength={30} style={{width:'100%',boxSizing:'border-box',background:T.bg,border:'1px solid '+T.border,borderRadius:12,padding:'14px',color:T.t1,fontSize:18,fontWeight:700,outline:'none',textAlign:'center'}}/>
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={()=>setEt(null)} style={{flex:1,padding:'13px 0',borderRadius:12,border:'1px solid '+T.border,background:T.card,color:T.t2,fontSize:13,cursor:'pointer'}}>Cancel</button>
+          <button onClick={()=>{if(en.trim()){onEdit(et.id,en.trim());setEt(null);}}} disabled={!en.trim()} style={{flex:2,padding:'13px 0',borderRadius:12,border:'none',background:en.trim()?T.accent:'#e5e7eb',color:en.trim()?'#fff':T.t4,fontSize:14,fontWeight:700,cursor:'pointer',letterSpacing:2,textTransform:'uppercase'}}>Save</button>
+        </div>
+        <button onClick={()=>setCd(true)} style={{padding:'11px 0',borderRadius:12,border:'1px solid #fecaca',background:'#fef2f2',color:T.red,fontSize:11,letterSpacing:2,cursor:'pointer',textTransform:'uppercase',fontWeight:700}}>Delete "{et.name}"</button>
+      </>):(<>
+        <div style={{fontSize:13,fontWeight:700,color:T.red,textAlign:'center'}}>Delete "{et.name}"?</div>
+        <div style={{fontSize:11,color:T.t3,textAlign:'center',lineHeight:1.7}}>All data will be permanently deleted.</div>
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={()=>setCd(false)} style={{flex:1,padding:'13px 0',borderRadius:12,border:'1px solid '+T.border,background:T.card,color:T.t2,fontSize:13,cursor:'pointer'}}>Cancel</button>
+          <button onClick={()=>{onDelete(et.id);setEt(null);setCd(false);}} style={{flex:1,padding:'13px 0',borderRadius:12,border:'none',background:T.red,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}>Delete</button>
+        </div>
+      </>)}
+    </div></div>}
+    <style>{`@keyframes popin{from{opacity:0;transform:scale(0.95)}to{opacity:1;transform:scale(1)}}`}</style>
+  </div>);
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App(){
+  const [teams,setTeams]=useState(()=>lsGet(TLK)||[]);
+  const [activeTeam,setActiveTeam]=useState(null);
+  const [sessionType,setSessionType]=useState(null);
+  const [opponent,setOpponent]=useState(null);
+  const saveTeams=useCallback(list=>{setTeams(list);lsSet(TLK,list);},[]);
+  const onCreate=name=>{const t={id:uid(),name,createdAt:new Date().toISOString(),playerCount:0,sessionCount:0,totalPoints:0};saveTeams([...teams,t]);setActiveTeam(t);};
+  const onEdit=(id,name)=>{const n=teams.map(t=>t.id===id?{...t,name}:t);saveTeams(n);if(activeTeam?.id===id)setActiveTeam(p=>({...p,name}));};
+  const onDelete=id=>{saveTeams(teams.filter(t=>t.id!==id));lsDel(TK(id));if(activeTeam?.id===id){setActiveTeam(null);setSessionType(null);setOpponent(null);}};
+  const onImport=useCallback(nt=>setTeams(nt),[]);
+  const onMeta=useCallback((id,u)=>{setTeams(prev=>{const n=prev.map(t=>t.id===id?{...t,...u}:t);lsSet(TLK,n);return n;});},[]);
+  const handleBack=()=>{if(opponent!==null){setOpponent(null);}else if(sessionType!==null){setSessionType(null);}else{setActiveTeam(null);}};
+  if(!activeTeam)return<TeamSelector teams={teams} onSelect={t=>{setActiveTeam(t);setSessionType(null);setOpponent(null);}} onCreate={onCreate} onEdit={onEdit} onDelete={onDelete} onImport={onImport}/>;
+  if(!sessionType)return<SessionTypeScreen teamName={activeTeam.name} onSelect={t=>{setSessionType(t);if(t==='Practice')setOpponent('');}} onBack={handleBack}/>;
+  if(sessionType==='Game'&&opponent===null)return<GameSetup teamName={activeTeam.name} onStart={opp=>setOpponent(opp)} onBack={handleBack}/>;
+  const teamData=lsGet(TK(activeTeam.id))||{};
+  return(<Tracker key={activeTeam.id+'-'+sessionType+'-'+(opponent||'')} teamMeta={activeTeam} players={teamData.players||[]} sessionType={sessionType} opponent={opponent||''} sessions={teamData.sessions||[]} onBack={handleBack} onPersist={u=>onMeta(activeTeam.id,u)}/>);
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+<script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}</script>
+</body>
+</html>
