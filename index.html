@@ -250,49 +250,49 @@ function ScoreEditModal({myName,oppName,myScore,oppScore,onAdj,onClose}){
 }
 
 // ── Opponent Panel ────────────────────────────────────────────────────────────
+function OppStatTile({label,val,tKey,color,large,q,onChange}){
+  const t=useRef(null),f=useRef(false);
+  const dn=(e)=>{e.preventDefault();f.current=false;t.current=setTimeout(()=>{f.current=true;if(val>0){onChange(q,tKey,-1);vib(40);}},700);};
+  const up=()=>{clearTimeout(t.current);if(!f.current){onChange(q,tKey,1);vib(50);}};
+  const cl=()=>{clearTimeout(t.current);f.current=true;};
+  return(<div onPointerDown={dn} onPointerUp={up} onPointerLeave={cl} onPointerCancel={cl}
+    style={{background:color+'15',borderRadius:10,padding:large?'10px 4px':'7px 4px',border:'1px solid '+color+'44',display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',flex:1,minWidth:0}}>
+    <div style={{fontSize:large?10:8,color,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase',textAlign:'center',lineHeight:1.2,whiteSpace:'nowrap'}}>{label}</div>
+    <div style={{fontSize:large?30:22,fontWeight:900,color:T.t1,lineHeight:1}}>{val}</div>
+  </div>);
+}
+function OppShotTile({label,shotKey,made,att,mode,onOppShot,color}){
+  const active=!!mode;
+  const handle=()=>{if(active){onOppShot(shotKey);}};
+  return(<div onClick={handle}
+    style={{background:active?mode==='make'?T.green+'22':T.red+'22':color+'15',borderRadius:10,padding:'10px 4px',border:'2px solid '+(active?mode==='make'?T.green:T.red:color+'55'),display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:active?'pointer':'default',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',flex:1.3,minWidth:0,transition:'all 0.15s'}}>
+    <div style={{fontSize:10,color:active?mode==='make'?T.green:T.red:color,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase',textAlign:'center',lineHeight:1.2}}>{label}</div>
+    <div style={{fontSize:28,fontWeight:900,color:T.t1,lineHeight:1}}>{made}</div>
+    <div style={{fontSize:8,color:T.t4}}>{att} att</div>
+  </div>);
+}
 function OppPanel({qData,q,onChange,mode,onOppShot}){
   const qd=qData[q-1]||EMPTY_OPP();
-  function OTile({label,val,tKey,color,large}){
-    const t=useRef(null),f=useRef(false);
-    const dn=(e)=>{e.preventDefault();f.current=false;t.current=setTimeout(()=>{f.current=true;if(val>0){onChange(q,tKey,-1);vib(40);}},700);};
-    const up=()=>{clearTimeout(t.current);if(!f.current){onChange(q,tKey,1);vib(50);}};
-    const cl=()=>{clearTimeout(t.current);f.current=true;};
-    return(<div onPointerDown={dn} onPointerUp={up} onPointerLeave={cl} onPointerCancel={cl}
-      style={{background:color+'15',borderRadius:10,padding:large?'10px 4px':'7px 4px',border:'1px solid '+color+'44',display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:'pointer',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',flex:1,minWidth:0}}>
-      <div style={{fontSize:large?10:8,color,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase',textAlign:'center',lineHeight:1.2,whiteSpace:'nowrap'}}>{label}</div>
-      <div style={{fontSize:large?30:22,fontWeight:900,color:T.t1,lineHeight:1}}>{val}</div>
-    </div>);
-  }
-  // Shot chips respond to Make/Miss mode
-  function ShotTile({label,shotKey,color}){
-    const active=!!mode;
-    const handle=()=>{if(active){onOppShot(shotKey);vib(50);}};
-    return(<div onClick={handle}
-      style={{background:active?mode==='make'?T.green+'22':T.red+'22':color+'15',borderRadius:10,padding:'10px 4px',border:'2px solid '+(active?mode==='make'?T.green:T.red:color+'44'),display:'flex',flexDirection:'column',alignItems:'center',gap:2,cursor:active?'pointer':'default',userSelect:'none',WebkitUserSelect:'none',touchAction:'manipulation',flex:1.4,minWidth:0,transition:'all 0.15s'}}>
-      <div style={{fontSize:10,color:active?mode==='make'?T.green:T.red:color,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase',textAlign:'center',lineHeight:1.2}}>{label}</div>
-      <div style={{fontSize:30,fontWeight:900,color:T.t1,lineHeight:1}}>{shotKey==='fg2'?qd.fg2m:shotKey==='fg3'?qd.fg3m:qd.ftm||0}</div>
-      <div style={{fontSize:8,color:T.t4}}>{shotKey==='fg2'?(qd.fg2a||0)+' att':shotKey==='fg3'?(qd.fg3a||0)+' att':(qd.fta||0)+' att'}</div>
-    </div>);
-  }
   const pts=oppQPts(qd);
   return(<div style={{background:T.card,borderRadius:12,border:'1px solid '+T.border,boxShadow:T.shadow,overflow:'hidden'}}>
     <div style={{padding:'8px 14px',background:'#fffbeb',borderBottom:'1px solid #fde68a',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
       <div style={{fontSize:10,fontWeight:700,color:'#92400e',letterSpacing:2,textTransform:'uppercase'}}>Opponent — Q{q}</div>
-      <div style={{fontSize:11,color:'#92400e',fontWeight:700}}>Score this Q: {pts}{mode&&<span style={{marginLeft:8,color:mode==='make'?T.green:T.red,animation:'pulse 1s ease-in-out infinite',display:'inline-block'}}>● {mode==='make'?'Make':'Miss'}</span>}</div>
+      <div style={{fontSize:11,color:'#92400e',fontWeight:700}}>
+        Score this Q: {pts}
+        {mode&&<span style={{marginLeft:8,color:mode==='make'?T.green:T.red,fontWeight:700}}> ● {mode==='make'?'Make':'Miss'}</span>}
+      </div>
     </div>
     <div style={{padding:'10px 12px',display:'flex',flexDirection:'column',gap:8}}>
-      {/* Shot chips — larger, respond to Make/Miss mode */}
       <div style={{display:'flex',gap:6}}>
-        <ShotTile label="2PT" shotKey="fg2" color={T.blue}/>
-        <ShotTile label="3PT" shotKey="fg3" color='#7c3aed'/>
-        <ShotTile label="FT" shotKey="ft" color='#d97706'/>
+        <OppShotTile label="2PT" shotKey="fg2" made={qd.fg2m||0} att={qd.fg2a||0} mode={mode} onOppShot={onOppShot} color={T.blue}/>
+        <OppShotTile label="3PT" shotKey="fg3" made={qd.fg3m||0} att={qd.fg3a||0} mode={mode} onOppShot={onOppShot} color='#7c3aed'/>
+        <OppShotTile label="FT" shotKey="ft" made={qd.ftm||0} att={qd.fta||0} mode={mode} onOppShot={onOppShot} color='#d97706'/>
       </div>
-      {/* Stat chips — smaller */}
       <div style={{display:'flex',gap:6}}>
-        <OTile label="O-REB" val={qd.oReb||0} tKey="oReb" color='#d97706'/>
-        <OTile label="D-REB" val={qd.dReb||0} tKey="dReb" color='#0891b2'/>
-        <OTile label="TO" val={qd.to||0} tKey="to" color={T.red}/>
-        <OTile label="FOUL" val={qd.foul||0} tKey="foul" color='#ea580c'/>
+        <OppStatTile label="O-REB" val={qd.oReb||0} tKey="oReb" color='#d97706' q={q} onChange={onChange}/>
+        <OppStatTile label="D-REB" val={qd.dReb||0} tKey="dReb" color='#0891b2' q={q} onChange={onChange}/>
+        <OppStatTile label="TO" val={qd.to||0} tKey="to" color={T.red} q={q} onChange={onChange}/>
+        <OppStatTile label="FOUL" val={qd.foul||0} tKey="foul" color='#ea580c' q={q} onChange={onChange}/>
       </div>
     </div>
   </div>);
