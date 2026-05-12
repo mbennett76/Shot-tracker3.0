@@ -1058,17 +1058,127 @@ function Tracker({teamMeta,players:initPlayers,sessionType,opponent,sessions:ini
   </div>);
 }
 
+// ── Help Modal ────────────────────────────────────────────────────────────────
+const HELP_SECTIONS=[
+  {id:'start',emoji:'🏀',title:'Getting Started',items:[
+    'From the Team Manager, tap <strong>＋ New Team</strong> to create your first team.',
+    'Once inside a team, tap a player chip to select them, then tap <strong>＋</strong> to add players. Enter their jersey number or name.',
+    'Long-press a player chip for 700ms to move them between On Floor and Bench zones.',
+    'Before each session you'll choose <strong>Practice</strong> or <strong>Game</strong> — they have different tracking tools.',
+    'Tap <strong>📤 Export Backup</strong> regularly to save your data as a JSON file. Use <strong>📥 Import Backup</strong> to restore it.',
+  ]},
+  {id:'practice',emoji:'🏋️',title:'Practice Mode',items:[
+    'Practice mode shows the court map only — clean and focused on shooting.',
+    'Tap <strong>✓ Make</strong> or <strong>✗ Miss</strong> to arm the tracker, then tap the court where the shot was taken.',
+    'The <strong>yellow diamond zone</strong> at the free throw line records free throws — tap it for FT attempts.',
+    'Shot dots appear on the court: <strong>filled = make</strong>, <strong>ring only = miss</strong>.',
+    'Tap <strong>↩ Undo</strong> to remove the last shot if you mis-tapped.',
+    'Tap <strong>🔥 Season Heat</strong> to overlay historical shooting percentages by zone.',
+    'Tap <strong>💾 Save Session</strong> when done. Add an optional label before saving.',
+  ]},
+  {id:'game',emoji:'🏆',title:'Game Mode',items:[
+    'Enter the opponent's name on the setup screen, then tap <strong>🏆 Start Game</strong>.',
+    'The <strong>scoreboard</strong> at the top auto-calculates score from all recorded shots and opponent baskets. Tap it to manually adjust either team's score.',
+    'Tap <strong>Q1 / Q2 / Q3 / Q4</strong> to switch quarters — all stats are recorded per quarter.',
+    'Long-press a player chip to move them <strong>On Floor</strong> (active) or to the <strong>Bench</strong> (inactive). The first zone always shows your on-floor players in numerical order.',
+    'Tap a player chip to select them before recording their shot or stat.',
+  ]},
+  {id:'stats',emoji:'📊',title:'Stat Chips',items:[
+    '<strong>Home team stat chips</strong> sit above the Make/Miss buttons: O REB, D REB, TO, AST, BLK, STL, FOUL.',
+    'Tap a stat chip once to add +1 for the selected player in the current quarter.',
+    'Hold a stat chip for 700ms to subtract −1 (corrects a mis-tap).',
+    'The chip label fills the tile; the current count appears as a small number in the corner.',
+    'Stats are recorded per player per quarter and totalled automatically.',
+  ]},
+  {id:'opponent',emoji:'🆚',title:'Opponent Tracking',items:[
+    'The opponent panel sits below the Make/Miss buttons.',
+    'To record an opponent basket: tap <strong>✓ Make</strong> or <strong>✗ Miss</strong>, then tap <strong>2PT</strong>, <strong>3PT</strong>, or <strong>FT</strong> in the opponent panel. The chip highlights to show it's listening.',
+    'The four smaller chips — O REB, D REB, TO, FOUL — work the same as home team chips: tap to add, hold to subtract.',
+    'Opponent score updates automatically from recorded baskets.',
+  ]},
+  {id:'log',emoji:'📋',title:'Play Log',items:[
+    'During a game, tap the <strong>📋 Log</strong> tab to see a running play-by-play.',
+    'Every shot, basket, and stat chip tap is recorded with the player, quarter, and action.',
+    'Quarter changes automatically insert dividers — <strong>End of Q1</strong>, <strong>Half Time</strong> after Q2, etc.',
+    'The log is saved with the session and viewable later in History.',
+    'Tapping <strong>↩ Undo</strong> removes the last play log entry along with the stat.',
+  ]},
+  {id:'history',emoji:'📅',title:'History & Stats',items:[
+    'Tap the <strong>📅 History</strong> tab to see all saved sessions.',
+    'The <strong>Season Overview</strong> shows team totals, overall FG%, and Game vs Practice split percentages.',
+    'Tap any player in the breakdown table to see their individual session history and season chart.',
+    'Tap any session to see the full court shot map, quarter breakdown table, opponent stats, and play log.',
+    '<strong>+/−</strong> tracks the score difference while each player is on the floor. It appears on player cards and session detail.',
+    'Tap <strong>📍 Season Chart</strong> to see all shots overlaid on one court, filterable by Game or Practice.',
+    'Tap <strong>📥 CSV</strong> to export a player's data as a spreadsheet.',
+  ]},
+  {id:'backup',emoji:'💾',title:'Data Backup',items:[
+    'All data is stored locally on your device — it does not sync to the cloud.',
+    'Tap <strong>📤 Export Backup</strong> on the Team Manager screen regularly to download a JSON backup file.',
+    'To move data to a new device or browser, export on the old device and tap <strong>📥 Import Backup</strong> on the new one.',
+    'The backup file contains all teams, players, sessions, shot data, and play logs.',
+    'If you update the app (upload a new index.html to GitHub), your data is preserved — it stays in the browser's local storage.',
+  ]},
+];
+
+function HelpModal({onClose}){
+  const [active,setActive]=useState('start');
+  const section=HELP_SECTIONS.find(s=>s.id===active)||HELP_SECTIONS[0];
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:999}} onClick={onClose}>
+      <div style={{background:T.card,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:520,maxHeight:'88vh',display:'flex',flexDirection:'column',animation:'slideup 0.25s ease'}} onClick={e=>e.stopPropagation()}>
+        {/* Header */}
+        <div style={{padding:'16px 20px 12px',borderBottom:'1px solid '+T.border,display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+          <div>
+            <div style={{fontSize:9,color:T.accent,fontWeight:700,letterSpacing:3,textTransform:'uppercase',marginBottom:2}}>ShotTracker 3.0</div>
+            <div style={{fontSize:17,fontWeight:900,color:T.t1,letterSpacing:2,textTransform:'uppercase'}}>User Guide</div>
+          </div>
+          <button onClick={onClose} style={{width:36,height:36,borderRadius:18,border:'1px solid '+T.border,background:T.bg,color:T.t2,fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>✕</button>
+        </div>
+        {/* Section tabs — horizontal scroll */}
+        <div style={{display:'flex',gap:6,padding:'10px 16px',overflowX:'auto',borderBottom:'1px solid '+T.border,flexShrink:0}}>
+          {HELP_SECTIONS.map(s=>(
+            <button key={s.id} onClick={()=>setActive(s.id)}
+              style={{padding:'6px 12px',borderRadius:20,border:'1px solid '+(active===s.id?T.accent:T.border),background:active===s.id?T.accent:T.card,color:active===s.id?'#fff':T.t3,fontSize:10,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',letterSpacing:1,flexShrink:0,transition:'all 0.15s'}}>
+              {s.emoji} {s.title}
+            </button>
+          ))}
+        </div>
+        {/* Content */}
+        <div style={{flex:1,overflowY:'auto',padding:'20px 20px 40px'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+            <div style={{fontSize:36}}>{section.emoji}</div>
+            <div style={{fontSize:18,fontWeight:900,color:T.t1,letterSpacing:2,textTransform:'uppercase'}}>{section.title}</div>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+            {section.items.map((item,i)=>(
+              <div key={i} style={{display:'flex',gap:12,alignItems:'flex-start',background:T.bg,borderRadius:10,padding:'12px 14px',border:'1px solid '+T.border}}>
+                <div style={{width:22,height:22,borderRadius:11,background:T.accent,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:1}}>
+                  <span style={{fontSize:10,color:'#fff',fontWeight:900}}>{i+1}</span>
+                </div>
+                <div style={{fontSize:13,color:T.t2,lineHeight:1.6}} dangerouslySetInnerHTML={{__html:item}}/>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Team Selector ─────────────────────────────────────────────────────────────
 function TeamSelector({teams,onSelect,onCreate,onEdit,onDelete,onImport}){
   const [cr,setCr]=useState(false),[nm,setNm]=useState(''),[et,setEt]=useState(null),[en,setEn]=useState(''),[cd,setCd]=useState(false);
   const [importMsg,setImportMsg]=useState(null);
+  const [helpOpen,setHelpOpen]=useState(false);
   const fileRef=useRef(null);
   const TC=['#dc2626','#2563eb','#16a34a','#7c3aed','#d97706','#0891b2','#9d174d','#374151'];
   const tc=id=>TC[parseInt(id.slice(-2),36)%TC.length];
   const handleExport=()=>{const keys=Object.keys(localStorage).filter(k=>k.startsWith('bball-'));const data={exportedAt:new Date().toISOString(),version:'v6',mergedTeams:teams,keys:{}};keys.forEach(k=>{try{data.keys[k]=JSON.parse(localStorage.getItem(k));}catch{}});const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='shottracker-backup-'+new Date().toISOString().slice(0,10)+'.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);};
   const handleImportFile=(e)=>{const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=(ev)=>{try{const data=JSON.parse(ev.target.result);if(!data.keys)throw new Error('Invalid');Object.entries(data.keys).forEach(([k,v])=>{let nk=k;if(/^bball-teams/.test(k)&&!/^bball-team-/.test(k))nk='bball-teams-v6';const m=k.match(/^bball-team-(?:v\d+-)?(.+)$/);if(m&&k.includes('-team-')&&!k.includes('teams'))nk='bball-team-v6-'+m[1];if(v&&v.sessions)v.sessions=v.sessions.map(s=>({foul:0,...s}));lsSet(nk,v);});const mt=data.mergedTeams||lsGet('bball-teams-v6')||[];if(mt.length>0)lsSet('bball-teams-v6',mt);const nt=lsGet('bball-teams-v6')||[];onImport(nt);setImportMsg('✓ Imported '+nt.length+' team(s)!');setTimeout(()=>setImportMsg(null),4000);}catch{setImportMsg('✗ Import failed — invalid file');setTimeout(()=>setImportMsg(null),4000);}};reader.readAsText(file);e.target.value='';};
   return(<div style={{minHeight:'100vh',background:T.bg,display:'flex',flexDirection:'column',alignItems:'center',padding:'0 0 40px',maxWidth:520,margin:'0 auto'}}>
-    <div style={{width:'100%',background:T.card,borderBottom:'1px solid '+T.border,padding:'44px 20px 24px',textAlign:'center',boxShadow:T.shadow}}>
+    <div style={{width:'100%',background:T.card,borderBottom:'1px solid '+T.border,padding:'44px 20px 24px',textAlign:'center',boxShadow:T.shadow,position:'relative'}}>
+      <button onClick={()=>setHelpOpen(true)} style={{position:'absolute',top:16,right:16,width:36,height:36,borderRadius:18,border:'1px solid '+T.border,background:T.bg,color:T.accent,fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:900,boxShadow:T.shadow}}>❓</button>
       <div style={{fontSize:52,marginBottom:8}}>🏀</div>
       <h1 style={{margin:'0 0 4px',fontSize:26,letterSpacing:4,color:T.t1,textTransform:'uppercase',fontWeight:900}}>Shot Tracker</h1>
       <div style={{fontSize:11,color:T.accent,letterSpacing:3,textTransform:'uppercase',fontWeight:700}}>v3.0 · Practice & Game</div>
@@ -1135,7 +1245,8 @@ function TeamSelector({teams,onSelect,onCreate,onEdit,onDelete,onImport}){
         </div>
       </>)}
     </div></div>}
-    <style>{`@keyframes popin{from{opacity:0;transform:scale(0.95)}to{opacity:1;transform:scale(1)}}`}</style>
+    <style>{`@keyframes popin{from{opacity:0;transform:scale(0.95)}to{opacity:1;transform:scale(1)}}@keyframes slideup{from{transform:translateY(30px);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
+    {helpOpen&&<HelpModal onClose={()=>setHelpOpen(false)}/>}
   </div>);
 }
 
